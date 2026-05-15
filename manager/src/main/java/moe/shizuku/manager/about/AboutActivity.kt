@@ -114,7 +114,7 @@ class AboutActivity : AppActivity() {
                 )
                 
                 Text(
-                    text = "Modern Edition",
+                    text = "Reforked Edition",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)

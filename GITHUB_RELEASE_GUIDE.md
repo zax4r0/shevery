@@ -1,4 +1,4 @@
-# 🚀 Shizuku Modern - GitHub Deployment Guide
+# 🚀 Shizuku Reforked - GitHub Deployment Guide
 
 This guide will walk you through pushing the source repository to your GitHub and creating the perfect, feature-complete Release.
 
@@ -12,7 +12,7 @@ Since direct GitHub authentication is on your system, open your terminal (PowerS
 # 1. Rename local main branch
 git branch -M main
 
-# 2. Create a new BLANK repository on your GitHub account (e.g., Shizuku-Modern)
+# 2. Create a new BLANK repository on your GitHub account (e.g., Shizuku-Reforked)
 # Then paste your HTTPS or SSH repository URL here:
 git remote add origin <YOUR_GITHUB_REPOSITORY_URL>
 
@@ -24,16 +24,16 @@ git push -u origin main
 
 ## 📦 Step 2: Create GitHub Release
 
-When creating a new GitHub Release, name the tag **`v13.6.0-modern`** and use the exact text below for the content:
+When creating a new GitHub Release, name the tag **`v13.6.0-reforked`** and use the exact text below for the content:
 
 ### Release Title:
-`Shizuku Modern v13.6.0 - Extended Features & Jetpack Compose UI`
+`Shizuku Reforked v13.6.0 - Extended Features & Jetpack Compose UI`
 
 ### Release Description (Markdown):
 ```markdown
-# 🌟 Shizuku Modern v13.6.0 (Independent Fork)
+# 🌟 Shizuku Reforked v13.6.0 (Independent Fork)
 
-Welcome to the definitive release of the **Shizuku Modern** fork! This version brings an entirely modernized Material 3 Expressive design system, an ADB-backed dynamic modules engine, and advanced laboratory toggles.
+Welcome to the definitive release of the **Shizuku Reforked** project! This version brings an entirely modernized Material 3 Expressive design system, an ADB-backed dynamic modules engine, and advanced laboratory toggles.
 
 ---
 
