@@ -1,4 +1,4 @@
-# Shizuku Reforked
+# Shevery
 
 ## Fork status
 
@@ -63,14 +63,11 @@ Shizuku uses a completely different way. See detailed description below.
   <table>
     <tr>
       <td align="center"><img src="screenshots/main.png" width="300" /><br/><b>Main Screen</b></td>
-      <td align="center"><img src="screenshots/apps.png" width="300" /><br/><b>Authorized Apps</b></td>
+      <td align="center"><img src="screenshots/comput.png" width="300" /><br/><b>Comput Console</b></td>
     </tr>
     <tr>
       <td align="center"><img src="screenshots/modules.png" width="300" /><br/><b>ADB Modules</b></td>
-      <td align="center"><img src="screenshots/module-webui.png" width="300" /><br/><b>Module WebUI</b></td>
-    </tr>
-    <tr>
-      <td colspan="2" align="center"><img src="screenshots/settings.png" width="300" /><br/><b>Settings</b></td>
+      <td align="center"><img src="screenshots/settings.png" width="300" /><br/><b>Settings</b></td>
     </tr>
   </table>
 </details>

@@ -176,9 +176,9 @@ class AboutActivity : AppActivity() {
             SettingsRow(
                 icon = R.drawable.ic_baseline_link_24,
                 title = stringResource(R.string.about_source_code_button),
-                summary = "github.com/HmnDev-Tech/shizuku-reforked",
+                summary = "github.com/HmnDev-Tech/shevery",
                 onClick = {
-                    CustomTabsHelper.launchUrlOrCopy(context, "https://github.com/HmnDev-Tech/shizuku-reforked")
+                    CustomTabsHelper.launchUrlOrCopy(context, "https://github.com/HmnDev-Tech/shevery")
                 }
             )
             GroupDivider()
