@@ -111,7 +111,11 @@ fun SettingsScreen() {
     var computAiExplain by remember {
         mutableStateOf(ModuleSettings.isComputAiExplainEnabled())
     }
+    var computGeminiModel by remember {
+        mutableStateOf(ModuleSettings.getComputGeminiModel())
+    }
     var showApiKeyDialog by remember { mutableStateOf(false) }
+    var showGeminiModelDialog by remember { mutableStateOf(false) }
     var recreateTick by remember { mutableIntStateOf(0) }
 
     val localeOptions = remember(languageTag) {
@@ -312,6 +316,13 @@ fun SettingsScreen() {
                     onClick = { showApiKeyDialog = true }
                 )
                 GroupDivider()
+                SettingsRow(
+                    icon = R.drawable.ic_outline_info_24,
+                    title = "Gemini AI Model",
+                    summary = computGeminiModel,
+                    onClick = { showGeminiModelDialog = true }
+                )
+                GroupDivider()
                 SwitchSettingsRow(
                     icon = R.drawable.ic_warning_24,
                     title = "ReCommand for Comput",
@@ -461,6 +472,28 @@ fun SettingsScreen() {
             },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             shape = MaterialTheme.shapes.extraLarge
+        )
+    }
+
+    if (showGeminiModelDialog) {
+        val modelOptions = listOf("gemini-3.5-flash", "gemini-3.1-flash-lite")
+        ChoiceDialog(
+            title = "Gemini AI Model",
+            choices = modelOptions.map {
+                ChoiceOption(
+                    title = it,
+                    summary = if (it == "gemini-3.5-flash") "High performance coding & agentic (Recommended)" else "Lightweight high speed model",
+                    icon = R.drawable.ic_outline_info_24
+                )
+            },
+            selectedIndex = modelOptions.indexOf(computGeminiModel),
+            onDismiss = { showGeminiModelDialog = false },
+            onSelect = { index ->
+                val selected = modelOptions[index]
+                ModuleSettings.setComputGeminiModel(selected)
+                computGeminiModel = selected
+                showGeminiModelDialog = false
+            }
         )
     }
 }

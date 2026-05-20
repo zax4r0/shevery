@@ -548,7 +548,8 @@ private suspend fun explainCommandWithGemini(
         return@withContext "Google AI Studio API Key is empty! Please configure it in Shevery Settings (Comput Console Settings)."
     }
     try {
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
+        val selectedModel = ModuleSettings.getComputGeminiModel()
+        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$selectedModel:generateContent?key=$apiKey")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.connectTimeout = 15000

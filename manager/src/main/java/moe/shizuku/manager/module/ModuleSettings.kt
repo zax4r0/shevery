@@ -249,6 +249,7 @@ object ModuleSettings {
     private const val KEY_COMPUT_API_KEY = "comput_api_key"
     private const val KEY_COMPUT_RECOMMAND = "comput_recommand"
     private const val KEY_COMPUT_AI_EXPLAIN = "comput_ai_explain"
+    private const val KEY_COMPUT_GEMINI_MODEL = "comput_gemini_model"
 
     fun getComputApiKey(): String {
         return ShizukuSettings.getPreferences().getString(KEY_COMPUT_API_KEY, "") ?: ""
@@ -256,6 +257,14 @@ object ModuleSettings {
 
     fun setComputApiKey(value: String) {
         ShizukuSettings.getPreferences().edit().putString(KEY_COMPUT_API_KEY, value).apply()
+    }
+
+    fun getComputGeminiModel(): String {
+        return ShizukuSettings.getPreferences().getString(KEY_COMPUT_GEMINI_MODEL, "gemini-3.5-flash") ?: "gemini-3.5-flash"
+    }
+
+    fun setComputGeminiModel(value: String) {
+        ShizukuSettings.getPreferences().edit().putString(KEY_COMPUT_GEMINI_MODEL, value).apply()
     }
 
     fun isComputRecommandEnabled(): Boolean {
