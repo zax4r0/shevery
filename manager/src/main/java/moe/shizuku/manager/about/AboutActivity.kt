@@ -79,11 +79,6 @@ class AboutActivity : AppActivity() {
 
     @Composable
     private fun AboutHeader(versionName: String) {
-        val gradientColors = listOf(
-            MaterialTheme.colorScheme.primaryContainer,
-            MaterialTheme.colorScheme.tertiaryContainer
-        )
-
         val context = androidx.compose.ui.platform.LocalContext.current
         val appIcon = remember {
             val bitmap = android.graphics.BitmapFactory.decodeResource(
@@ -97,7 +92,7 @@ class AboutActivity : AppActivity() {
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(Brush.verticalGradient(gradientColors))
+                .background(MaterialTheme.colorScheme.primaryContainer)
                 .padding(vertical = 32.dp, horizontal = 16.dp),
             contentAlignment = Alignment.Center
         ) {

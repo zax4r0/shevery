@@ -179,6 +179,7 @@ abstract class HomeActivity : AppActivity() {
 
             ShizukuExpressiveTheme {
                 Scaffold(
+                    contentWindowInsets = WindowInsets.navigationBars,
                     bottomBar = {
                         NavigationBar(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,

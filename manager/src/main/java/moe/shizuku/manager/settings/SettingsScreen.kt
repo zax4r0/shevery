@@ -108,9 +108,6 @@ fun SettingsScreen() {
     var computRecommand by remember {
         mutableStateOf(ModuleSettings.isComputRecommandEnabled())
     }
-    var computAiExplain by remember {
-        mutableStateOf(ModuleSettings.isComputAiExplainEnabled())
-    }
     var computGeminiModel by remember {
         mutableStateOf(ModuleSettings.getComputGeminiModel())
     }
@@ -331,17 +328,6 @@ fun SettingsScreen() {
                     onCheckedChange = { enabled ->
                         ModuleSettings.setComputRecommandEnabled(enabled)
                         computRecommand = enabled
-                    }
-                )
-                GroupDivider()
-                SwitchSettingsRow(
-                    icon = R.drawable.ic_outline_info_24,
-                    title = "Explain with AI",
-                    summary = "Provide automated option to explain terminal outputs with Gemini",
-                    checked = computAiExplain,
-                    onCheckedChange = { enabled ->
-                        ModuleSettings.setComputAiExplainEnabled(enabled)
-                        computAiExplain = enabled
                     }
                 )
             }

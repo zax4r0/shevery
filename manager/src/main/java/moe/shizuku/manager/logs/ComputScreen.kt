@@ -110,18 +110,37 @@ fun ComputScreen() {
             
             val finalCmd = if (isAdbMode) {
                 var trimmed = cmd.trim()
-                if (trimmed.startsWith("adb ")) {
-                    trimmed = trimmed.substring(4).trim()
-                }
-                if (trimmed.startsWith("shell ")) {
+                if (trimmed.startsWith("adb shell ")) {
+                    trimmed = trimmed.substring(10).trim()
+                } else if (trimmed.startsWith("adb shell")) {
+                    trimmed = trimmed.substring(9).trim()
+                } else if (trimmed.startsWith("shell ")) {
                     trimmed = trimmed.substring(6).trim()
+                } else if (trimmed.startsWith("shell")) {
+                    trimmed = trimmed.substring(5).trim()
+                } else if (trimmed.startsWith("adb ")) {
+                    trimmed = trimmed.substring(4).trim()
+                } else if (trimmed == "adb") {
+                    trimmed = "adb_help"
                 }
+
                 if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length >= 2) {
                     trimmed = trimmed.substring(1, trimmed.length - 1).trim()
                 } else if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
                     trimmed = trimmed.substring(1, trimmed.length - 1).trim()
                 }
-                trimmed
+
+                if (trimmed == "adb_help" || trimmed == "help" || trimmed == "--help" || trimmed == "-h") {
+                    "adb_internal_help"
+                } else if (trimmed == "devices") {
+                    "adb_internal_devices"
+                } else if (trimmed.startsWith("install")) {
+                    "adb_internal_install"
+                } else if (trimmed.startsWith("push") || trimmed.startsWith("pull")) {
+                    "adb_internal_file_transfer"
+                } else {
+                    trimmed
+                }
             } else {
                 cmd.trim()
             }
@@ -139,6 +158,39 @@ fun ComputScreen() {
             }
             
             val result = withContext(Dispatchers.IO) {
+                if (isAdbMode) {
+                    when (finalCmd) {
+                        "adb_internal_help" -> {
+                            return@withContext """
+                                Android Debug Bridge (Shevery Console Bridge)
+                                You are already connected to the device's privileged shell via Shevery.
+                                
+                                For on-device shell commands, type them directly without 'adb' or 'adb shell'.
+                                Examples:
+                                  pm list packages
+                                  settings get secure android_id
+                                  dumpsys battery
+                                
+                                Note: Host-side commands like 'adb devices', 'adb push/pull', or 'adb install' are not supported directly inside the device shell, but you can use standard shell equivalents (e.g. 'pm install').
+                            """.trimIndent()
+                        }
+                        "adb_internal_devices" -> {
+                            return@withContext """
+                                List of devices attached
+                                local_shevery_device    device
+                                
+                                [I] You are currently inside the shell of this device.
+                            """.trimIndent()
+                        }
+                        "adb_internal_install" -> {
+                            return@withContext "[E] 'adb install' is a host-side command.\nTo install an APK directly on the device, use:\n  pm install <path_to_apk>"
+                        }
+                        "adb_internal_file_transfer" -> {
+                            return@withContext "[E] 'adb push' and 'adb pull' are host-side file transfer commands.\nUse 'cp' or 'mv' to copy/move files on the device, or use a file manager."
+                        }
+                    }
+                }
+
                 if (!Shizuku.pingBinder()) {
                     return@withContext "Error: Privileged Shevery Service is not running. Please start the service first."
                 }
