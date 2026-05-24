@@ -101,7 +101,7 @@ class ModuleJsBridge(
         if (!ModuleSettings.canExposeWebBridge(module)) {
             return shellError("Permission denied: WebUI shell bridge is blocked by module access policy.")
         }
-        if (!trusted && ModuleSettings.recommandForWebUi()) {
+        if (ModuleSettings.recommandForWebUi()) {
             val approved = commandReviewer?.confirmCommand(
                 ModuleCommandRequest(
                     module = module,

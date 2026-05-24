@@ -69,7 +69,8 @@ class StarterActivity : AppActivity() {
 
         viewModel.output.observe(this) {
             val output = it.data.orEmpty().trim()
-            if (!waitingForService && output.endsWith("info: shizuku_starter exit with 0")) {
+            val finished = output.endsWith("info: shizuku_starter exit with 0") || (startedWithDhizuku && output.endsWith("✓ Initialization complete."))
+            if (!waitingForService && finished) {
                 waitingForService = true
                 viewModel.appendOutput("")
                 viewModel.appendOutput("Waiting for service...")

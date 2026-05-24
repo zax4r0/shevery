@@ -182,7 +182,7 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                     }
                 },
                 onRunAction = {
-                    if (!ModuleSettings.isModuleTrusted(module.id) && ModuleSettings.recommandForAction()) {
+                    if (ModuleSettings.recommandForAction()) {
                         pendingCommand = ModuleCommandRequest(
                             module = module,
                             source = ModuleCommandSource.ACTION,

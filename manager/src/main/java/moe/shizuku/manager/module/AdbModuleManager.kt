@@ -128,21 +128,21 @@ object AdbModuleManager {
     }
 
     suspend fun runAction(module: AdbModule): ModuleActionResult = withContext(Dispatchers.IO) {
-        check(ModuleSettings.canRunAction(module)) { "action.sh is blocked by module access policy." }
-        val script = module.actionScript?.takeIf { it.isFile } ?: error("This module has no action.sh.")
+        check(ModuleSettings.canRunAction(module)) { "actionScript is blocked by module access policy." }
+        val script = module.actionScript?.takeIf { it.isFile } ?: error("This module has no action script.")
         runModuleScript(module, script, module.lastActionLog)
     }
 
     suspend fun runActionStreaming(module: AdbModule): ModuleActionResult = withContext(Dispatchers.IO) {
-        check(ModuleSettings.canRunAction(module)) { "action.sh is blocked by module access policy." }
-        val script = module.actionScript?.takeIf { it.isFile } ?: error("This module has no action.sh.")
+        check(ModuleSettings.canRunAction(module)) { "actionScript is blocked by module access policy." }
+        val script = module.actionScript?.takeIf { it.isFile } ?: error("This module has no action script.")
         runModuleScriptStreaming(module, script, module.lastActionLog)
     }
 
     suspend fun runService(module: AdbModule): ModuleActionResult = withContext(Dispatchers.IO) {
-        check(ModuleSettings.canRunService(module)) { "service.sh is blocked by module access policy." }
+        check(ModuleSettings.canRunService(module)) { "serviceScript is blocked by module access policy." }
         check(ModuleSettings.canRunBackground(module)) { "Background actions are disabled." }
-        val script = module.serviceScript?.takeIf { it.isFile } ?: error("This module has no service.sh.")
+        val script = module.serviceScript?.takeIf { it.isFile } ?: error("This module has no service script.")
         runModuleScript(module, script, module.lastServiceLog)
     }
 
@@ -174,7 +174,11 @@ object AdbModuleManager {
             "SHIZUKU_MODULE_ID=${module.id}",
             "SHIZUKU_MODULE_MODE=${ModuleSettings.getAccessMode().value}",
             "SHIZUKU_MODULE_TRUSTED=${if (ModuleSettings.isModuleTrusted(module.id)) "1" else "0"}",
-            "SHIZUKU_MODULE_BACKGROUND=${if (ModuleSettings.canRunBackground(module)) "1" else "0"}"
+            "SHIZUKU_MODULE_BACKGROUND=${if (ModuleSettings.canRunBackground(module)) "1" else "0"}",
+            "AXERON=true",
+            "AXERONVER=1.0.0",
+            "MODPATH=${module.directory.absolutePath}",
+            "ARCH=${android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"}"
         )
         val remote = service.newProcess(
             arrayOf("sh", script.absolutePath),
@@ -235,7 +239,11 @@ object AdbModuleManager {
             "SHIZUKU_MODULE_ID=${module.id}",
             "SHIZUKU_MODULE_MODE=${ModuleSettings.getAccessMode().value}",
             "SHIZUKU_MODULE_TRUSTED=${if (ModuleSettings.isModuleTrusted(module.id)) "1" else "0"}",
-            "SHIZUKU_MODULE_BACKGROUND=${if (ModuleSettings.canRunBackground(module)) "1" else "0"}"
+            "SHIZUKU_MODULE_BACKGROUND=${if (ModuleSettings.canRunBackground(module)) "1" else "0"}",
+            "AXERON=true",
+            "AXERONVER=1.0.0",
+            "MODPATH=${module.directory.absolutePath}",
+            "ARCH=${android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"}"
         )
         val remote = service.newProcess(
             arrayOf("sh", script.absolutePath),
@@ -373,8 +381,19 @@ object AdbModuleManager {
             declaresShellBridge = props["usesShellBridge"]?.toBooleanStrictOrNull()
                 ?: props["shellBridge"]?.toBooleanStrictOrNull()
                 ?: false,
-            actionScript = findFirstExisting(directory, props["action"], "action.sh"),
-            serviceScript = findFirstExisting(directory, "service.sh"),
+            actionScript = findFirstExisting(
+                directory,
+                props["action"],
+                "action.sh",
+                "run.sh",
+                "main.sh",
+                "exec.sh"
+            ),
+            serviceScript = findFirstExisting(
+                directory,
+                "service.sh",
+                "late_start.sh"
+            ),
             logsDir = directory.resolve("logs"),
             sizeBytes = directory.walkTopDown()
                 .filter { it.isFile }

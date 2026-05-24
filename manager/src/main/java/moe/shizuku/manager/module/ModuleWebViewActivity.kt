@@ -21,8 +21,14 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 class ModuleWebViewActivity : AppActivity() {
+
+    private var pendingCommand by mutableStateOf<ModuleCommandRequest?>(null)
+    private var onApprovedCallback by mutableStateOf<((Boolean) -> Unit)?>(null)
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,7 +74,9 @@ class ModuleWebViewActivity : AppActivity() {
                                         ModuleJsBridge(
                                             module,
                                             commandReviewer = { request ->
-                                                confirmCommandOnUiThread(request)
+                                                runBlocking {
+                                                    confirmCommand(request)
+                                                }
                                             }
                                         ),
                                         "Shizuku"
@@ -81,42 +89,35 @@ class ModuleWebViewActivity : AppActivity() {
                             .padding(padding)
                     )
                 }
+
+                pendingCommand?.let { request ->
+                    ReCommandDialog(
+                        request = request,
+                        onDismiss = {
+                            onApprovedCallback?.invoke(false)
+                            pendingCommand = null
+                        },
+                        onReject = {
+                            onApprovedCallback?.invoke(false)
+                            pendingCommand = null
+                        },
+                        onApprove = {
+                            onApprovedCallback?.invoke(true)
+                            pendingCommand = null
+                        }
+                    )
+                }
             }
         }
     }
 
-    private fun confirmCommandOnUiThread(
-        request: ModuleCommandRequest
-    ): Boolean {
-        val latch = CountDownLatch(1)
-        val approved = AtomicBoolean(false)
+    private suspend fun confirmCommand(request: ModuleCommandRequest): Boolean = suspendCancellableCoroutine { continuation ->
         runOnUiThread {
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle(moe.shizuku.manager.R.string.modules_recommand_title)
-                .setMessage(
-                    getString(moe.shizuku.manager.R.string.modules_recommand_source, request.module.name, "WebUI") +
-                    "\n\n" + request.command
-                )
-                .setPositiveButton(moe.shizuku.manager.R.string.modules_recommand_execute) { _, _ ->
-                    approved.set(true)
-                    latch.countDown()
-                }
-                .setNegativeButton(moe.shizuku.manager.R.string.modules_recommand_close) { _, _ ->
-                    approved.set(false)
-                    latch.countDown()
-                }
-                .setOnCancelListener {
-                    approved.set(false)
-                    latch.countDown()
-                }
-                .show()
+            onApprovedCallback = { result ->
+                continuation.resume(result)
+            }
+            pendingCommand = request
         }
-        try {
-            latch.await(5, TimeUnit.MINUTES)
-        } catch (e: InterruptedException) {
-            approved.set(false)
-        }
-        return approved.get()
     }
 
     private class LocalModuleWebViewClient(
