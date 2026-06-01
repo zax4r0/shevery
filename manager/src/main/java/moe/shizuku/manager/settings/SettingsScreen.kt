@@ -55,6 +55,9 @@ import rikka.core.util.ResourceUtils
 import rikka.material.app.LocaleDelegate
 import rikka.shizuku.manager.ShizukuLocales
 import java.util.Locale
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+
 
 @Composable
 fun SettingsScreen() {
@@ -182,7 +185,7 @@ fun SettingsScreen() {
                         icon = R.drawable.ic_outline_info_24,
                         title = stringResource(R.string.settings_translation_contributors),
                         summary = contributors,
-                        onClick = { }
+                        onClick = null
                     )
                     GroupDivider()
                 }
@@ -427,6 +430,7 @@ fun SettingsScreen() {
 
     if (showApiKeyDialog) {
         var tempKey by remember { mutableStateOf(computApiKey) }
+        var keyVisible by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showApiKeyDialog = false },
             title = { Text("Google AI Studio API Key") },
@@ -437,7 +441,17 @@ fun SettingsScreen() {
                     label = { Text("API Key") },
                     placeholder = { Text("AIzaSy...") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        val image = if (keyVisible) R.drawable.ic_close_24 else R.drawable.ic_outline_info_24
+                        androidx.compose.material3.IconButton(onClick = { keyVisible = !keyVisible }) {
+                            moe.shizuku.manager.ui.compose.ShizukuIcon(
+                                icon = image,
+                                contentDescription = if (keyVisible) "Hide API key" else "Show API key"
+                            )
+                        }
+                    }
                 )
             },
             confirmButton = {

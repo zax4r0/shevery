@@ -116,6 +116,9 @@ object WatchdogManager {
                     restartWirelessAdb(context)
                 }
             }
+            LaunchMethod.DHIZUKU -> {
+                restartDhizuku(context)
+            }
         }
     }
 
@@ -158,6 +161,46 @@ object WatchdogManager {
             adbMdns.start()
             latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
             adbMdns.stop()
+        }
+    }
+
+    private fun restartDhizuku(context: Context) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                logi("Watchdog attempting Dhizuku restart...")
+                val initResult = com.rosan.dhizuku.api.Dhizuku.init(context.applicationContext)
+                if (!initResult) {
+                    logd("Dhizuku init failed in watchdog")
+                    return@launch
+                }
+                if (!com.rosan.dhizuku.api.Dhizuku.isPermissionGranted()) {
+                    logd("Dhizuku permission is not granted in watchdog")
+                    return@launch
+                }
+                val serviceResult = kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
+                    val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
+                        android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
+                    )
+                    val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, object : android.content.ServiceConnection {
+                        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                            if (cont.isActive) cont.resumeWith(Result.success(service))
+                        }
+                        override fun onServiceDisconnected(name: android.content.ComponentName?) {}
+                    })
+                    if (!bound && cont.isActive) {
+                        cont.resumeWith(Result.success(null))
+                    }
+                }
+                if (serviceResult == null) {
+                    logd("Dhizuku service binding failed in watchdog")
+                    return@launch
+                }
+                val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
+                dhizukuService.runCommand(Starter.internalCommand)
+                logi("Watchdog started Shevery server via Dhizuku successfully")
+            } catch (e: Exception) {
+                logd("Watchdog Dhizuku restart failed: ${e.message}")
+            }
         }
     }
 }

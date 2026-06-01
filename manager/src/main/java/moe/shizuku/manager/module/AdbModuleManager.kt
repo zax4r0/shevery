@@ -444,7 +444,7 @@ object AdbModuleManager {
                     case "${'$'}1" in
                         -c)
                             shift
-                            exec sh -c "${'$'}@"
+                            exec sh -c "${'$'}*"
                             ;;
                         *)
                             shift
