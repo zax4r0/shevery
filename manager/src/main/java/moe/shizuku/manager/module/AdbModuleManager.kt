@@ -288,38 +288,8 @@ object AdbModuleManager {
             } catch (ignore: Exception) { }
         }
 
-        val logcatRemote = try {
-            service.newProcess(arrayOf("logcat", "-v", "time", "-T", "1"), null, null)
-        } catch (e: Exception) { null }
-        val logcatThread = Thread {
-            logcatRemote?.let { lr ->
-                try {
-                    val reader = ParcelFileDescriptor.AutoCloseInputStream(lr.getInputStream()).bufferedReader(Charsets.UTF_8)
-                    reader.use { r ->
-                        val buffer = CharArray(1024)
-                        while (true) {
-                            val read = r.read(buffer)
-                            if (read <= 0) break
-                            val chunk = String(buffer, 0, read)
-                            synchronized(streamingBuffer) {
-                                streamingBuffer.append(chunk)
-                                stdout = streamingBuffer.toString()
-                            }
-                            _liveOutput.value = LiveModuleOutput(
-                                moduleId = module.id,
-                                moduleName = module.name,
-                                text = streamingBuffer.toString().takeLast(MAX_OUTPUT_CHARS),
-                                running = true
-                            )
-                        }
-                    }
-                } catch (ignore: Exception) {}
-            }
-        }
-
         stdoutThread.start()
         stderrThread.start()
-        logcatThread.start()
         val finished = remote.waitForTimeout(MAX_SCRIPT_SECONDS, TimeUnit.SECONDS.name)
         val exitCode = if (finished) {
             remote.exitValue()
@@ -327,10 +297,8 @@ object AdbModuleManager {
             remote.destroy()
             124
         }
-        logcatRemote?.destroy()
         stdoutThread.join(1000)
         stderrThread.join(1000)
-        logcatThread.join(1000)
 
         val finalOutput = synchronized(streamingBuffer) { streamingBuffer.toString() }
         _liveOutput.value = LiveModuleOutput(
@@ -426,9 +394,9 @@ object AdbModuleManager {
     }
 
     private fun ensureInside(root: File, child: File) {
-        val rootPath = root.canonicalPath
-        val childPath = child.canonicalPath
-        require(childPath == rootPath || childPath.startsWith("$rootPath/")) {
+        val rootPath = root.canonicalFile.toPath()
+        val childPath = child.canonicalFile.toPath()
+        require(childPath.startsWith(rootPath)) {
             "Unsafe module path: ${child.name}"
         }
     }

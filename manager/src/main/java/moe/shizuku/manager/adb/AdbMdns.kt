@@ -27,16 +27,20 @@ class AdbMdns(
     fun start() {
         if (running) return
         running = true
-        if (!registered) {
+        try {
             nsdManager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, listener)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start service discovery", e)
         }
     }
 
     fun stop() {
         if (!running) return
         running = false
-        if (registered) {
+        try {
             nsdManager.stopServiceDiscovery(listener)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to stop service discovery: ${e.message}")
         }
     }
 

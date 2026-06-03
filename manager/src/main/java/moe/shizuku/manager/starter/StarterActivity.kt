@@ -323,42 +323,60 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
                 appendLine("✓ Dhizuku permission granted\n")
 
                 appendLine("Binding Dhizuku user service...")
-                val serviceResult = kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
-                    val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
-                        android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
-                    )
-                    val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, object : android.content.ServiceConnection {
-                        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                            if (cont.isActive) cont.resumeWith(Result.success(service))
+                val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
+                    android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
+                )
+                var connection: android.content.ServiceConnection? = null
+                val serviceResult = kotlinx.coroutines.withTimeoutOrNull(10000) {
+                    kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
+                        val conn = object : android.content.ServiceConnection {
+                            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                                if (cont.isActive) cont.resumeWith(Result.success(service))
+                            }
+                            override fun onServiceDisconnected(name: android.content.ComponentName?) {}
                         }
-                        override fun onServiceDisconnected(name: android.content.ComponentName?) {}
-                    })
-                    if (!bound && cont.isActive) {
-                        cont.resumeWith(Result.success(null))
+                        connection = conn
+                        val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
+                        if (!bound && cont.isActive) {
+                            cont.resumeWith(Result.success(null))
+                        }
+                        cont.invokeOnCancellation {
+                            try {
+                                com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
+                            } catch (e: Exception) { }
+                        }
                     }
                 }
 
                 if (serviceResult == null) {
-                    appendLine("✗ Dhizuku service binding failed.")
+                    appendLine("✗ Dhizuku service binding failed or timed out.")
                     appendLine("  Make sure Dhizuku is set as Device Owner and is active.")
                     postResult(DhizukuException("Dhizuku service binding failed"))
                     return@launch
                 }
                 appendLine("✓ Dhizuku service connected\n")
 
-                val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
+                try {
+                    val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
 
-                // Directly run starter command using Dhizuku Device Owner privileges!
-                appendLine("Starting Shevery server via Dhizuku Device Owner privileges...")
-                ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.DHIZUKU)
+                    // Directly run starter command using Dhizuku Device Owner privileges!
+                    appendLine("Starting Shevery server via Dhizuku Device Owner privileges...")
+                    ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.DHIZUKU)
 
-                dhizukuService.runCommand(Starter.internalCommand)
+                    dhizukuService.runCommand(Starter.internalCommand)
 
-                appendLine("✓ Starter command executed successfully.")
-                appendLine("Waiting for Shevery service to initialize...")
-                kotlinx.coroutines.delay(2000)
-                appendLine("✓ Initialization complete.")
-                postResult()
+                    appendLine("✓ Starter command executed successfully.")
+                    appendLine("Waiting for Shevery service to initialize...")
+                    kotlinx.coroutines.delay(2000)
+                    appendLine("✓ Initialization complete.")
+                    postResult()
+                } finally {
+                    connection?.let { conn ->
+                        try {
+                            com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
+                        } catch (e: Exception) { }
+                    }
+                }
 
             } catch (e: Exception) {
                 appendLine("\n✗ Dhizuku error: ${e.message}")

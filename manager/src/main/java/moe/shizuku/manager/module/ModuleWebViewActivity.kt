@@ -25,10 +25,14 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 
+private data class PendingCommand(
+    val request: ModuleCommandRequest,
+    val continuation: kotlinx.coroutines.CancellableContinuation<Boolean>
+)
+
 class ModuleWebViewActivity : AppActivity() {
 
-    private var pendingCommand by mutableStateOf<ModuleCommandRequest?>(null)
-    private var onApprovedCallback by mutableStateOf<((Boolean) -> Unit)?>(null)
+    private val pendingCommands = androidx.compose.runtime.mutableStateListOf<PendingCommand>()
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,20 +94,27 @@ class ModuleWebViewActivity : AppActivity() {
                     )
                 }
 
-                pendingCommand?.let { request ->
+                val currentPending = pendingCommands.firstOrNull()
+                currentPending?.let { pending ->
                     ReCommandDialog(
-                        request = request,
+                        request = pending.request,
                         onDismiss = {
-                            onApprovedCallback?.invoke(false)
-                            pendingCommand = null
+                            if (pending.continuation.isActive) {
+                                pending.continuation.resume(false)
+                            }
+                            pendingCommands.remove(pending)
                         },
                         onReject = {
-                            onApprovedCallback?.invoke(false)
-                            pendingCommand = null
+                            if (pending.continuation.isActive) {
+                                pending.continuation.resume(false)
+                            }
+                            pendingCommands.remove(pending)
                         },
                         onApprove = {
-                            onApprovedCallback?.invoke(true)
-                            pendingCommand = null
+                            if (pending.continuation.isActive) {
+                                pending.continuation.resume(true)
+                            }
+                            pendingCommands.remove(pending)
                         }
                     )
                 }
@@ -113,10 +124,13 @@ class ModuleWebViewActivity : AppActivity() {
 
     private suspend fun confirmCommand(request: ModuleCommandRequest): Boolean = suspendCancellableCoroutine { continuation ->
         runOnUiThread {
-            onApprovedCallback = { result ->
-                continuation.resume(result)
+            val item = PendingCommand(request, continuation)
+            pendingCommands.add(item)
+            continuation.invokeOnCancellation {
+                runOnUiThread {
+                    pendingCommands.remove(item)
+                }
             }
-            pendingCommand = request
         }
     }
 

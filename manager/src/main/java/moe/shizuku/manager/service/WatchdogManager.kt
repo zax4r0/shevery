@@ -177,27 +177,45 @@ object WatchdogManager {
                     logd("Dhizuku permission is not granted in watchdog")
                     return@launch
                 }
-                val serviceResult = kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
-                    val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
-                        android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
-                    )
-                    val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, object : android.content.ServiceConnection {
-                        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                            if (cont.isActive) cont.resumeWith(Result.success(service))
+                val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
+                    android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
+                )
+                var connection: android.content.ServiceConnection? = null
+                val serviceResult = kotlinx.coroutines.withTimeoutOrNull(10000) {
+                    kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
+                        val conn = object : android.content.ServiceConnection {
+                            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                                if (cont.isActive) cont.resumeWith(Result.success(service))
+                            }
+                            override fun onServiceDisconnected(name: android.content.ComponentName?) {}
                         }
-                        override fun onServiceDisconnected(name: android.content.ComponentName?) {}
-                    })
-                    if (!bound && cont.isActive) {
-                        cont.resumeWith(Result.success(null))
+                        connection = conn
+                        val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
+                        if (!bound && cont.isActive) {
+                            cont.resumeWith(Result.success(null))
+                        }
+                        cont.invokeOnCancellation {
+                            try {
+                                com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
+                            } catch (e: Exception) { }
+                        }
                     }
                 }
                 if (serviceResult == null) {
-                    logd("Dhizuku service binding failed in watchdog")
+                    logd("Dhizuku service binding failed or timed out in watchdog")
                     return@launch
                 }
-                val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
-                dhizukuService.runCommand(Starter.internalCommand)
-                logi("Watchdog started Shevery server via Dhizuku successfully")
+                try {
+                    val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
+                    dhizukuService.runCommand(Starter.internalCommand)
+                    logi("Watchdog started Shevery server via Dhizuku successfully")
+                } finally {
+                    connection?.let { conn ->
+                        try {
+                            com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
+                        } catch (e: Exception) { }
+                    }
+                }
             } catch (e: Exception) {
                 logd("Watchdog Dhizuku restart failed: ${e.message}")
             }
