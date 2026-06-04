@@ -77,6 +77,7 @@ class ModuleWebViewActivity : AppActivity() {
                                     addJavascriptInterface(
                                         ModuleJsBridge(
                                             module,
+                                            webView = this,
                                             commandReviewer = { request ->
                                                 runBlocking {
                                                     confirmCommand(request)
@@ -141,20 +142,30 @@ class ModuleWebViewActivity : AppActivity() {
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
-            return when (uri.scheme?.lowercase()) {
-                "file" -> !isInsideWebRoot(uri.path.orEmpty())
-                "https" -> !webNetworkAllowed
-                "http" -> true
-                else -> true
+            val scheme = uri.scheme?.lowercase()
+            if (scheme == "http" || scheme == "https") {
+                try {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    view.context.startActivity(intent)
+                } catch (e: Exception) {
+                    // Ignore
+                }
+                return true
             }
+            if (scheme == "file") {
+                return !isInsideWebRoot(uri.path.orEmpty())
+            }
+            return true
         }
 
         private fun isInsideWebRoot(path: String): Boolean {
             val root = module.webRoot ?: return false
             return runCatching {
-                val rootFile = root.canonicalFile.toPath()
-                val target = File(path).canonicalFile.toPath()
-                target.startsWith(rootFile)
+                val rootPath = root.canonicalPath
+                val targetPath = File(path).canonicalPath
+                targetPath.startsWith(rootPath)
             }.getOrDefault(false)
         }
     }

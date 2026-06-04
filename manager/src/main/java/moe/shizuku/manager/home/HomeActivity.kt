@@ -433,6 +433,7 @@ abstract class HomeActivity : AppActivity() {
         )
     }
 
+
     companion object {
         private const val SDK_ANDROID_13 = 33
         private const val SDK_ANDROID_16 = 36
@@ -1128,3 +1129,5 @@ private fun DhizukuCard(onStartDhizuku: () -> Unit) {
         )
     }
 }
+
+

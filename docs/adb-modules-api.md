@@ -252,14 +252,10 @@ Trusted modules:
 
 When ReCommand is enabled, WebUI shell execution and Action execution show a confirmation dialog before the command runs. The dialog shows the command, supports icon-only expand/collapse and copy controls, and has one close action plus one execute action. Expand/collapse is shown only when the command is longer than the preview.
 
-The optional AI checker is hidden by default. It is toggled from Settings by tapping the translation contributors row five times quickly. After unlock:
-
-- the AI settings row appears in module settings;
-- the Gemini star appears in ReCommand dialogs;
-- the API key is stored encrypted with Android Keystore;
-- supported model ids are `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, and `gemini-3.1-flash-lite-preview`.
-
-Repeating the same five-tap gesture hides the AI settings row and Gemini star again.
+The optional AI checker is fully integrated into the manager:
+- Gemini console explanation is available in the Comput screen.
+- The API key is securely encrypted using Android Keystore.
+- Configurable settings are directly accessible under Comput Console settings.
 
 ### WebUI Internet File Loader
 

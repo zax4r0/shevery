@@ -107,6 +107,7 @@ class StarterActivity : AppActivity() {
                     is DhizukuException -> {
                         // Already logged in the output
                     }
+
                 }
 
                 if (message != 0) {
@@ -130,6 +131,8 @@ class StarterActivity : AppActivity() {
                     navigationIcon = R.drawable.ic_close_24
                 ) {
                     item {
+                        val startedWithRoot = intent.getBooleanExtra(EXTRA_IS_ROOT, true)
+                        val startedWithDhizuku = intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false)
                         ExpressiveCard(
                             icon = when {
                                 startedWithDhizuku -> R.drawable.ic_system_icon

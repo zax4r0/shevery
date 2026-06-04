@@ -14,11 +14,40 @@ import javax.net.ssl.HttpsURLConnection
 
 class ModuleJsBridge(
     private val module: AdbModule,
+    private val webView: android.webkit.WebView,
     private val commandReviewer: ModuleCommandReviewer? = null
 ) {
 
+    private fun isOriginValid(): Boolean {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var url: String? = null
+        webView.post {
+            url = webView.url
+            latch.countDown()
+        }
+        try {
+            latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            return false
+        }
+        val currentUrl = url ?: return false
+        if (!currentUrl.startsWith("file://", ignoreCase = true)) {
+            return false
+        }
+        val cleanUrl = currentUrl.substring(7).split("?")[0].split("#")[0]
+        val root = module.webRoot ?: return false
+        return try {
+            val rootPath = root.canonicalPath
+            val filePath = File(cleanUrl).canonicalPath
+            filePath.startsWith(rootPath)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     @JavascriptInterface
     fun getModuleInfo(): String {
+        if (!isOriginValid()) return "{}"
         return JSONObject().apply {
             put("ok", true)
             put("id", module.id)
@@ -49,11 +78,13 @@ class ModuleJsBridge(
 
     @JavascriptInterface
     fun exec(command: String): String {
+        if (!isOriginValid()) return shellError("Permission denied: Origin mismatch.")
         return execInternal(command, ExecOptions())
     }
 
     @JavascriptInterface
     fun execWithOptions(command: String, optionsJson: String): String {
+        if (!isOriginValid()) return shellError("Permission denied: Origin mismatch.")
         return try {
             execInternal(command, parseExecOptions(optionsJson))
         } catch (e: Exception) {
@@ -63,6 +94,14 @@ class ModuleJsBridge(
 
     @JavascriptInterface
     fun download(url: String, relativeWebPath: String): String {
+        if (!isOriginValid()) {
+            return JSONObject().apply {
+                put("ok", false)
+                put("url", url)
+                put("path", relativeWebPath)
+                put("error", "Permission denied: Origin mismatch.")
+            }.toString()
+        }
         val result = JSONObject()
         return try {
             ensureModuleUsableForWebFiles()

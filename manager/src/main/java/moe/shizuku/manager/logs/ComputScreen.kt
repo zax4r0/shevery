@@ -71,6 +71,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import moe.shizuku.manager.R
 import moe.shizuku.manager.module.ModuleSettings
 import moe.shizuku.manager.ui.compose.ShizukuLazyScaffold
@@ -202,9 +204,15 @@ fun ComputScreen() {
                         null,
                         null
                     )
-                    
-                    val stdoutText = ParcelFileDescriptor.AutoCloseInputStream(remote.getInputStream()).bufferedReader().use { it.readText() }
-                    val stderrText = ParcelFileDescriptor.AutoCloseInputStream(remote.getErrorStream()).bufferedReader().use { it.readText() }
+                    val (stdoutText, stderrText) = kotlinx.coroutines.coroutineScope {
+                        val stdoutDeferred = async {
+                            ParcelFileDescriptor.AutoCloseInputStream(remote.getInputStream()).bufferedReader().use { it.readText() }
+                        }
+                        val stderrDeferred = async {
+                            ParcelFileDescriptor.AutoCloseInputStream(remote.getErrorStream()).bufferedReader().use { it.readText() }
+                        }
+                        stdoutDeferred.await() to stderrDeferred.await()
+                    }
                     
                     buildString {
                         if (stdoutText.isNotBlank()) append(stdoutText.trim())
