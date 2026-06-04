@@ -2,24 +2,16 @@
 
 ## Fork status
 
-This repository is an independent fork of Shizuku, based on the upstream project by RikkaApps.
-It is not the official upstream app. And this repository is an independent refork of Nightzuku by kerneldroid.
-
-This fork modernizes the Android manager UI with Jetpack Compose and Material 3 Expressive,
-tracks newer Android SDK targets, carries local server/manager fixes, and adds an ADB-backed
-module runner for ZIP modules.
-
-Upstream project: <https://github.com/RikkaApps/Shizuku> 
-| <https://github.com/kerneldroid/Nightzuku>
+> [!IMPORTANT]
+> **Migration Action Required:** Due to the App Signation, you **MUST UNINSTALL** any older official Shizuku Manager app from your device before installing Shevery. Otherwise, they will conflict.
+Upstream project reference: <https://github.com/RikkaApps/Shizuku>
+> 
 
 ## Fork additions
 
 - Jetpack Compose manager UI with Material 3 Expressive components, motion, switches, and rounded icon treatment.
-- **Bottom Floating Navigation Bar**: Refined modern UX container moving settings, modules, and logs into sleek floating tabs.
 - **Dhizuku Experimental Support**: Dedicated Device-Owner bridging system available inside Laboratory features.
-- **TCP Mode & Watchdog**: Advanced service toggles enabling command execution via local TCP and self-recovery background loop.
-- **Asynchronous Diagnostic Logs**: Completely rebuilt log framework reporting deep execution scans in real-time.
-- **Compose-based About Screen**: Stunning "About App" section with rich gradient designs and accessible support links.
+- **Better shell/adb based "Comput"** feature with Gemini Explaination.
 - Android 16/17 target work with current preview SDK/build tooling in this fork.
 - ADB Modules screen for installing and managing ZIP modules.
 - Module features: `module.prop`, banner, enable/disable switch, `action.sh`, policy-gated `service.sh`, local WebUI, delete, path checks, size limits, output limits, and last-run logs.
