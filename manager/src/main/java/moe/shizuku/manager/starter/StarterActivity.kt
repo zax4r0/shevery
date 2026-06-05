@@ -298,89 +298,12 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                appendLine("Initializing Dhizuku...")
-                val initResult = com.rosan.dhizuku.api.Dhizuku.init(context.applicationContext)
-                if (!initResult) {
-                    appendLine("✗ Dhizuku init failed. Is Dhizuku app installed and active?")
-                    postResult(DhizukuException("Dhizuku init failed"))
-                    return@launch
-                }
-                appendLine("✓ Dhizuku initialized\n")
-
-                appendLine("Checking Dhizuku permission...")
-                if (!com.rosan.dhizuku.api.Dhizuku.isPermissionGranted()) {
-                    appendLine("Requesting Dhizuku permission...")
-                    val permissionGranted = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
-                        com.rosan.dhizuku.api.Dhizuku.requestPermission(object : com.rosan.dhizuku.api.DhizukuRequestPermissionListener() {
-                            override fun onRequestPermission(grantResult: Int) {
-                                cont.resume(grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {}
-                            }
-                        })
-                    }
-                    if (!permissionGranted) {
-                        appendLine("✗ Dhizuku permission denied")
-                        postResult(DhizukuException("Dhizuku permission denied"))
-                        return@launch
-                    }
-                }
-                appendLine("✓ Dhizuku permission granted\n")
-
-                appendLine("Binding Dhizuku user service...")
-                val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
-                    android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
-                )
-                var connection: android.content.ServiceConnection? = null
-                val serviceResult = kotlinx.coroutines.withTimeoutOrNull(10000) {
-                    kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
-                        val conn = object : android.content.ServiceConnection {
-                            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                                if (cont.isActive) cont.resumeWith(Result.success(service))
-                            }
-                            override fun onServiceDisconnected(name: android.content.ComponentName?) {}
-                        }
-                        connection = conn
-                        val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
-                        if (!bound && cont.isActive) {
-                            cont.resumeWith(Result.success(null))
-                        }
-                        cont.invokeOnCancellation {
-                            try {
-                                com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
-                            } catch (e: Exception) { }
-                        }
-                    }
-                }
-
-                if (serviceResult == null) {
-                    appendLine("✗ Dhizuku service binding failed or timed out.")
-                    appendLine("  Make sure Dhizuku is set as Device Owner and is active.")
-                    postResult(DhizukuException("Dhizuku service binding failed"))
-                    return@launch
-                }
-                appendLine("✓ Dhizuku service connected\n")
-
-                try {
-                    val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
-
-                    // Directly run starter command using Dhizuku Device Owner privileges!
-                    appendLine("Starting Shevery server via Dhizuku Device Owner privileges...")
-                    ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.DHIZUKU)
-
-                    dhizukuService.runCommand(Starter.internalCommand)
-
-                    appendLine("✓ Starter command executed successfully.")
-                    appendLine("Waiting for Shevery service to initialize...")
-                    kotlinx.coroutines.delay(2000)
-                    appendLine("✓ Initialization complete.")
-                    postResult()
-                } finally {
-                    connection?.let { conn ->
-                        try {
-                            com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
-                        } catch (e: Exception) { }
-                    }
-                }
-
+                appendLine("✗ Dhizuku mode is architecturally unsupported.")
+                appendLine("  Android security policies restrict Device Owner applications from")
+                appendLine("  executing privileged shell processes. Dhizuku cannot run the")
+                appendLine("  Shevery server under the necessary root or shell UID.")
+                appendLine("  Please use Wireless ADB or Root mode instead.")
+                postResult(DhizukuException("Dhizuku mode is unsupported due to sandbox restrictions."))
             } catch (e: Exception) {
                 appendLine("\n✗ Dhizuku error: ${e.message}")
                 appendLine(Log.getStackTraceString(e))

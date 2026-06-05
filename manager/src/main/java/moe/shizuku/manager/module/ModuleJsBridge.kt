@@ -39,7 +39,7 @@ class ModuleJsBridge(
         return try {
             val rootPath = root.canonicalPath
             val filePath = File(cleanUrl).canonicalPath
-            filePath.startsWith(rootPath)
+            filePath == rootPath || filePath.startsWith(rootPath + File.separator)
         } catch (e: Exception) {
             false
         }

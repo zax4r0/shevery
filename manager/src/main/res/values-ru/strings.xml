@@ -226,7 +226,7 @@
     <string name="dhizuku_warning_title">Внимание: Dhizuku Mode</string>
     <string name="dhizuku_warning_message">Dhizuku предназначен для управления правами администратора устройства (Device Owner). Некоторые функции ADB и оболочки могут работать некорректно или не поддерживаться при активации Shevery через Dhizuku. Вы уверены, что хотите продолжить?</string>
     <string name="settings_tcp_mode">TCP Mode</string>
-    <string name="settings_tcp_mode_summary">Слушать команды сервера через локальный TCP-сокет (fallback)</string>
+    <string name="settings_tcp_mode_summary">Попытаться переподключиться и перезапустить сервер через локальный ADB на порту 5555 (watchdog)</string>
     <string name="settings_service_group">Обслуживание службы</string>
 
     <!-- Lab Features - Service Behavior -->

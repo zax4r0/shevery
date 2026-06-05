@@ -204,15 +204,31 @@ fun ComputScreen() {
                         null,
                         null
                     )
-                    val (stdoutText, stderrText) = kotlinx.coroutines.coroutineScope {
-                        val stdoutDeferred = async {
-                            ParcelFileDescriptor.AutoCloseInputStream(remote.getInputStream()).bufferedReader().use { it.readText() }
-                        }
-                        val stderrDeferred = async {
-                            ParcelFileDescriptor.AutoCloseInputStream(remote.getErrorStream()).bufferedReader().use { it.readText() }
-                        }
-                        stdoutDeferred.await() to stderrDeferred.await()
+                    
+                    var stdoutText = ""
+                    var stderrText = ""
+                    val stdoutThread = Thread {
+                        try {
+                            stdoutText = readStreamTail(remote.getInputStream())
+                        } catch (ignore: Exception) { }
                     }
+                    val stderrThread = Thread {
+                        try {
+                            stderrText = readStreamTail(remote.getErrorStream())
+                        } catch (ignore: Exception) { }
+                    }
+                    stdoutThread.start()
+                    stderrThread.start()
+                    
+                    val finished = remote.waitForTimeout(120L, java.util.concurrent.TimeUnit.SECONDS.name)
+                    val exitCode = if (finished) {
+                        remote.exitValue()
+                    } else {
+                        remote.destroy()
+                        124
+                    }
+                    stdoutThread.join(1000)
+                    stderrThread.join(1000)
                     
                     buildString {
                         if (stdoutText.isNotBlank()) append(stdoutText.trim())
@@ -220,6 +236,13 @@ fun ComputScreen() {
                             if (isNotEmpty()) append("\n")
                             append("[E] ")
                             append(stderrText.trim())
+                        }
+                        if (!finished) {
+                            if (isNotEmpty()) append("\n")
+                            append("[E] Command timed out after 120 seconds.")
+                        } else if (exitCode != 0) {
+                            if (isNotEmpty()) append("\n")
+                            append("[E] Command exited with code $exitCode.")
                         }
                         if (isEmpty()) append("Command completed with no output.")
                     }
@@ -654,3 +677,24 @@ private suspend fun explainCommandWithGemini(
         "Failed to reach Gemini API: ${e.message ?: "Connection error."}"
     }
 }
+
+private fun readStreamTail(pfd: ParcelFileDescriptor): String {
+    return ParcelFileDescriptor.AutoCloseInputStream(pfd).reader(Charsets.UTF_8).use { reader ->
+        val buffer = CharArray(8192)
+        val tail = StringBuilder()
+        while (true) {
+            val read = reader.read(buffer)
+            if (read <= 0) break
+            tail.append(buffer, 0, read)
+            if (tail.length > 64 * 1024 * 2) {
+                tail.delete(0, tail.length - 64 * 1024)
+            }
+        }
+        if (tail.length > 64 * 1024) {
+            tail.substring(tail.length - 64 * 1024)
+        } else {
+            tail.toString()
+        }
+    }
+}
+

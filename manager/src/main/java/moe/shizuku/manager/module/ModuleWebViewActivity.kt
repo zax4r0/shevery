@@ -165,7 +165,7 @@ class ModuleWebViewActivity : AppActivity() {
             return runCatching {
                 val rootPath = root.canonicalPath
                 val targetPath = File(path).canonicalPath
-                targetPath.startsWith(rootPath)
+                targetPath == rootPath || targetPath.startsWith(rootPath + File.separator)
             }.getOrDefault(false)
         }
     }
