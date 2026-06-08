@@ -148,8 +148,8 @@ public class Android17Compat {
                     }
                 }
                 if (sCheckPermissionMethod != null) {
-                    // Pass packageName first, permissionName second to match IPermissionManager signature
-                    return (int) invokeMethod(pm, sCheckPermissionMethod, packageName, permissionName, userId);
+                    // Pass permissionName first, packageName second to match IPermissionManager signature (permName, pkgName, userId)
+                    return (int) invokeMethod(pm, sCheckPermissionMethod, permissionName, packageName, userId);
                 }
             } catch (Throwable ex) {
                 Log.e(TAG, "Android 17 fallback for checkPermission(String, String, int) failed", ex);
@@ -178,6 +178,9 @@ public class Android17Compat {
                     if (paramTypes.length == 3 && paramTypes[0] == int.class && paramTypes[1] == String.class && paramTypes[2] == int.class) {
                         // (int uid, String permission, int deviceId)
                         return (int) sCheckPermissionUidMethod.invoke(pm, uid, permissionName, 0);
+                    } else if (paramTypes.length == 2 && paramTypes[0] == int.class && paramTypes[1] == String.class) {
+                        // (int uid, String permission)
+                        return (int) sCheckPermissionUidMethod.invoke(pm, uid, permissionName);
                     }
                 }
             } catch (Throwable ex) {
