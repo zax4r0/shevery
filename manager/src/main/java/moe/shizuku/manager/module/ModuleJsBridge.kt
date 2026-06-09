@@ -166,17 +166,19 @@ class ModuleJsBridge(
                 cwd.absolutePath
             )
 
+            val stdoutPfd = remote.getInputStream()
+            val stderrPfd = remote.getErrorStream()
             var stdout = ""
             var stderr = ""
             val stdoutThread = Thread {
                 try {
-                    stdout = readStreamTail(remote.getInputStream())
+                    stdout = readStreamTail(stdoutPfd)
                 } catch (ignore: Exception) {
                 }
             }
             val stderrThread = Thread {
                 try {
-                    stderr = readStreamTail(remote.getErrorStream())
+                    stderr = readStreamTail(stderrPfd)
                 } catch (ignore: Exception) {
                 }
             }
@@ -195,6 +197,8 @@ class ModuleJsBridge(
                 remote.exitValue()
             } else {
                 remote.destroy()
+                try { stdoutPfd.close() } catch (ignore: Exception) {}
+                try { stderrPfd.close() } catch (ignore: Exception) {}
                 EXIT_TIMEOUT
             }
             stdoutThread.join(1000)

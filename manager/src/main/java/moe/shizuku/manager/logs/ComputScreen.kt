@@ -205,16 +205,19 @@ fun ComputScreen() {
                         null
                     )
                     
+                    val stdoutPfd = remote.getInputStream()
+                    val stderrPfd = remote.getErrorStream()
+
                     var stdoutText = ""
                     var stderrText = ""
                     val stdoutThread = Thread {
                         try {
-                            stdoutText = readStreamTail(remote.getInputStream())
+                            stdoutText = readStreamTail(stdoutPfd)
                         } catch (ignore: Exception) { }
                     }
                     val stderrThread = Thread {
                         try {
-                            stderrText = readStreamTail(remote.getErrorStream())
+                            stderrText = readStreamTail(stderrPfd)
                         } catch (ignore: Exception) { }
                     }
                     stdoutThread.start()
@@ -225,6 +228,8 @@ fun ComputScreen() {
                         remote.exitValue()
                     } else {
                         remote.destroy()
+                        try { stdoutPfd.close() } catch (ignore: Exception) {}
+                        try { stderrPfd.close() } catch (ignore: Exception) {}
                         124
                     }
                     stdoutThread.join(1000)

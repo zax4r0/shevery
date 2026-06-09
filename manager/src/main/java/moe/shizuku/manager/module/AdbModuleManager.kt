@@ -189,16 +189,18 @@ object AdbModuleManager {
         )
 
         ParcelFileDescriptor.AutoCloseOutputStream(remote.getOutputStream()).close()
+        val stdoutPfd = remote.getInputStream()
+        val stderrPfd = remote.getErrorStream()
         var stdout = ""
         var stderr = ""
         val stdoutThread = Thread {
             try {
-                stdout = readStreamTail(ParcelFileDescriptor.AutoCloseInputStream(remote.getInputStream()))
+                stdout = readStreamTail(ParcelFileDescriptor.AutoCloseInputStream(stdoutPfd))
             } catch (ignore: Exception) { }
         }
         val stderrThread = Thread {
             try {
-                stderr = readStreamTail(ParcelFileDescriptor.AutoCloseInputStream(remote.getErrorStream()))
+                stderr = readStreamTail(ParcelFileDescriptor.AutoCloseInputStream(stderrPfd))
             } catch (ignore: Exception) { }
         }
         stdoutThread.start()
@@ -208,6 +210,8 @@ object AdbModuleManager {
             remote.exitValue()
         } else {
             remote.destroy()
+            try { stdoutPfd.close() } catch (ignore: Exception) {}
+            try { stderrPfd.close() } catch (ignore: Exception) {}
             124
         }
         stdoutThread.join(1000)
@@ -256,12 +260,14 @@ object AdbModuleManager {
         )
 
         ParcelFileDescriptor.AutoCloseOutputStream(remote.getOutputStream()).close()
+        val stdoutPfd = remote.getInputStream()
+        val stderrPfd = remote.getErrorStream()
         val streamingBuffer = StringBuilder()
         var stdout = ""
         var stderr = ""
         val stdoutThread = Thread {
             try {
-                val reader = ParcelFileDescriptor.AutoCloseInputStream(remote.getInputStream()).bufferedReader(Charsets.UTF_8)
+                val reader = ParcelFileDescriptor.AutoCloseInputStream(stdoutPfd).bufferedReader(Charsets.UTF_8)
                 reader.use { r ->
                     val buffer = CharArray(1024)
                     while (true) {
@@ -284,7 +290,7 @@ object AdbModuleManager {
         }
         val stderrThread = Thread {
             try {
-                stderr = readStreamTail(ParcelFileDescriptor.AutoCloseInputStream(remote.getErrorStream()))
+                stderr = readStreamTail(ParcelFileDescriptor.AutoCloseInputStream(stderrPfd))
             } catch (ignore: Exception) { }
         }
 
@@ -295,6 +301,8 @@ object AdbModuleManager {
             remote.exitValue()
         } else {
             remote.destroy()
+            try { stdoutPfd.close() } catch (ignore: Exception) {}
+            try { stderrPfd.close() } catch (ignore: Exception) {}
             124
         }
         stdoutThread.join(1000)
