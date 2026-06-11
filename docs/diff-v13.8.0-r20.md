@@ -6,20 +6,10 @@ This page documents the specific code changes introduced in Shevery v13.8.0-r20 
 
 ## 1. Android Manifest updates (`manager/src/main/AndroidManifest.xml`)
 
-* Added `androidx.wear.compose` libraries to `tools:overrideLibrary` to prevent manifest merger conflicts during the TV/Wear OS build.
-* Re-enabled `LEANBACK_LAUNCHER` activity category to add full Google TV integration.
+* Uncommented `LEANBACK_LAUNCHER` activity category to enable Google TV integration natively without modifying the original phone UI layout.
 * Registered the local `SheveryControlReceiver` to process intents from notification action buttons.
 
 ```diff
-@@ -2,7 +2,7 @@
- <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-     xmlns:tools="http://schemas.android.com/tools">
- 
--    <uses-sdk tools:overrideLibrary="com.rosan.dhizuku.api" />
-+    <uses-sdk tools:overrideLibrary="com.rosan.dhizuku.api, androidx.wear.compose.material3, androidx.wear.compose.foundation, androidx.wear.compose.material.core, androidx.wear.compose.material" />
- 
- 
-     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 @@ -84,7 +84,7 @@
  
                  <!-- 2023.08.03: Google play enforces that apps with LEANBACK_LAUNCHER Activity must be uploaded with App Bundle format, -->
@@ -183,3 +173,57 @@ object SheveryNotificationManager {
         notificationManager.notify(NOTIFICATION_ID, builder.build())
     }
 }
+```
+
+---
+
+## 4. Notification Action Broadcast Receiver (`manager/src/main/java/moe/shizuku/manager/receiver/SheveryControlReceiver.kt`)
+
+* Handles incoming broadcast actions to attempt starting the Shizuku server using `WatchdogManager` or stopping it.
+
+```kotlin
+package moe.shizuku.manager.receiver
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import moe.shizuku.manager.service.WatchdogManager
+
+class SheveryControlReceiver : BroadcastReceiver() {
+    companion object {
+        const val ACTION_START_SERVER = "moe.shizuku.manager.action.START_SERVER"
+        const val ACTION_STOP_SERVER = "moe.shizuku.manager.action.STOP_SERVER"
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+            ACTION_START_SERVER -> {
+                WatchdogManager.attemptRestart(context.applicationContext)
+            }
+            ACTION_STOP_SERVER -> {
+                WatchdogManager.stopServer()
+            }
+        }
+    }
+}
+```
+
+---
+
+## 5. IPermissionManager Reflection Correction (`server/src/main/java/rikka/shizuku/server/util/Android17Compat.java`)
+
+* Corrected the parameter order of `checkPermission` signature lookup to pass `packageName` first and `permissionName` second.
+
+```diff
+@@ -148,8 +148,8 @@ public class Android17Compat {
+                     }
+                 }
+                 if (sCheckPermissionMethod != null) {
+-                    // Pass permissionName first, packageName second to match IPermissionManager signature (permName, pkgName, userId)
+-                    return (int) invokeMethod(pm, sCheckPermissionMethod, permissionName, packageName, userId);
++                    // Pass packageName first, permissionName second to match IPermissionManager signature (pkgName, permName, deviceId, userId)
++                    return (int) invokeMethod(pm, sCheckPermissionMethod, packageName, permissionName, userId);
+                 }
+             } catch (Throwable ex) {
+                 Log.e(TAG, "Android 17 fallback for checkPermission(String, String, int) failed", ex);
+```
