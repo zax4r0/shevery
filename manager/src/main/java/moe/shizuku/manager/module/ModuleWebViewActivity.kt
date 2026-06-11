@@ -123,6 +123,16 @@ class ModuleWebViewActivity : AppActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        pendingCommands.forEach { pending ->
+            if (pending.continuation.isActive) {
+                pending.continuation.resume(false)
+            }
+        }
+        pendingCommands.clear()
+    }
+
     private suspend fun confirmCommand(request: ModuleCommandRequest): Boolean = suspendCancellableCoroutine { continuation ->
         runOnUiThread {
             val item = PendingCommand(request, continuation)

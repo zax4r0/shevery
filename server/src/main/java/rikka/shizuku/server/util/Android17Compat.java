@@ -148,8 +148,8 @@ public class Android17Compat {
                     }
                 }
                 if (sCheckPermissionMethod != null) {
-                    // Pass permissionName first, packageName second to match IPermissionManager signature (permName, pkgName, userId)
-                    return (int) invokeMethod(pm, sCheckPermissionMethod, permissionName, packageName, userId);
+                    // Pass packageName first, permissionName second to match IPermissionManager signature (pkgName, permName, deviceId, userId)
+                    return (int) invokeMethod(pm, sCheckPermissionMethod, packageName, permissionName, userId);
                 }
             } catch (Throwable ex) {
                 Log.e(TAG, "Android 17 fallback for checkPermission(String, String, int) failed", ex);

@@ -70,7 +70,7 @@ object AdbModuleManager {
                 val id = props["id"]?.trim().orEmpty()
                 require(idRegex.matches(id)) { "Invalid module id: $id" }
 
-                installMutexes.getOrPut(id) { Mutex() }.withLock {
+                installMutexes.computeIfAbsent(id) { Mutex() }.withLock {
                     val target = File(modulesRoot(context), id)
                     val staging = File(modulesRoot(context), ".$id.installing")
                     staging.deleteRecursively()

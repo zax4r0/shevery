@@ -243,4 +243,13 @@
     <string name="notification_channel_watchdog">Сторож службы</string>
     <string name="notification_watchdog_title">Служба Shevery остановлена</string>
     <string name="notification_watchdog_text">Служба Shevery неожиданно остановилась.</string>
+
+    <!-- Shevery Control Notification -->
+    <string name="notification_control_channel_name">Управление Shevery</string>
+    <string name="notification_control_title_running">Shevery запущена</string>
+    <string name="notification_control_title_stopped">Shevery остановлена</string>
+    <string name="notification_control_text_running">Нажмите, чтобы открыть Shevery, или используйте кнопки ниже для остановки.</string>
+    <string name="notification_control_text_stopped">Нажмите, чтобы открыть Shevery, или используйте кнопки ниже для запуска.</string>
+    <string name="notification_control_action_start">Запустить</string>
+    <string name="notification_control_action_stop">Остановить</string>
 </resources>

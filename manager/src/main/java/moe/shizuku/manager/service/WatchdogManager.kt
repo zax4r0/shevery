@@ -92,7 +92,7 @@ object WatchdogManager {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun attemptRestart(context: Context) {
+    fun attemptRestart(context: Context) {
         val lastMode = ShizukuSettings.getLastLaunchMode()
         logi("Attempting to restart service (Last mode: $lastMode)")
 
@@ -120,6 +120,13 @@ object WatchdogManager {
                 restartDhizuku(context)
             }
         }
+    }
+
+    fun stopServer() {
+        try {
+            expectingDeath = true
+            Shizuku.exit()
+        } catch (_: Throwable) {}
     }
 
     private fun restartTcp(context: Context) {

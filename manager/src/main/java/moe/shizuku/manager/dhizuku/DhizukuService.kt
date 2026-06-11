@@ -18,20 +18,32 @@ class DhizukuService(private val context: Context) : IDhizukuService.Stub() {
             try {
                 Log.d(TAG, "Executing command: $it")
                 val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", it))
-                Thread {
+                try {
+                    process.outputStream.close()
+                } catch (_: Exception) {}
+                val stdoutThread = Thread {
                     try {
                         process.inputStream.use { stream ->
                             val buffer = ByteArray(1024)
                             while (stream.read(buffer) != -1) { }
                         }
                     } catch (_: Exception) {}
-                }.start()
-                Thread {
+                }
+                val stderrThread = Thread {
                     try {
                         process.errorStream.use { stream ->
                             val buffer = ByteArray(1024)
                             while (stream.read(buffer) != -1) { }
                         }
+                    } catch (_: Exception) {}
+                }
+                stdoutThread.start()
+                stderrThread.start()
+                Thread {
+                    try {
+                        process.waitFor()
+                        stdoutThread.join()
+                        stderrThread.join()
                     } catch (_: Exception) {}
                 }.start()
             } catch (e: Exception) {

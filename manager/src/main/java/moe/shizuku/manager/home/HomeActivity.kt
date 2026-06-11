@@ -76,33 +76,22 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import moe.shizuku.manager.BuildConfig
 import moe.shizuku.manager.Helps
 import moe.shizuku.manager.R
-import moe.shizuku.manager.about.AboutActivity
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.app.AppActivity
 import moe.shizuku.manager.management.ApplicationManagementActivity
 import moe.shizuku.manager.module.AdbModuleManager
-
+import moe.shizuku.manager.module.ModulesActivity
 import moe.shizuku.manager.management.appsViewModel
 import moe.shizuku.manager.model.ServiceStatus
-
+import moe.shizuku.manager.settings.SettingsActivity
 import moe.shizuku.manager.shell.ShellTutorialActivity
 import moe.shizuku.manager.starter.Starter
 import moe.shizuku.manager.starter.StarterActivity
 import moe.shizuku.manager.ui.compose.ShizukuIcon
 import moe.shizuku.manager.ui.compose.ShizukuExpressiveTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
 import moe.shizuku.manager.utils.CustomTabsHelper
 import moe.shizuku.manager.utils.EnvironmentUtils
 import moe.shizuku.manager.utils.UserHandleCompat
-import moe.shizuku.manager.ui.compose.ExpressiveCard
-import moe.shizuku.manager.ui.compose.HtmlText
-import moe.shizuku.manager.ui.compose.MonospaceLog
-import moe.shizuku.manager.ui.compose.ShizukuLazyScaffold
 import rikka.core.util.ClipboardUtils
 import rikka.lifecycle.Resource
 import rikka.lifecycle.Status
@@ -110,9 +99,6 @@ import rikka.lifecycle.viewModels
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuApiConstants
 import rikka.html.text.HtmlCompat as RikkaHtmlCompat
-import moe.shizuku.manager.module.ModuleSettings
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
 
 abstract class HomeActivity : AppActivity() {
 
@@ -158,16 +144,13 @@ abstract class HomeActivity : AppActivity() {
             LaunchedEffect(serviceResource?.status, serviceResource?.data?.uid) {
                 val status = serviceResource?.data ?: return@LaunchedEffect
                 if (serviceResource?.status == Status.SUCCESS && status.isRunning) {
-                    val currentMode = ShizukuSettings.getLastLaunchMode()
-                    if (currentMode != ShizukuSettings.LaunchMethod.DHIZUKU) {
-                        ShizukuSettings.setLastLaunchMode(
-                            if (status.uid == 0) {
-                                ShizukuSettings.LaunchMethod.ROOT
-                            } else {
-                                ShizukuSettings.LaunchMethod.ADB
-                            }
-                        )
-                    }
+                    ShizukuSettings.setLastLaunchMode(
+                        if (status.uid == 0) {
+                            ShizukuSettings.LaunchMethod.ROOT
+                        } else {
+                            ShizukuSettings.LaunchMethod.ADB
+                        }
+                    )
                     try {
                         AdbModuleManager.runEnabledServicesIfAllowed(applicationContext)
                     } catch (_: Throwable) {
@@ -175,91 +158,123 @@ abstract class HomeActivity : AppActivity() {
                 }
             }
 
-            var selectedTab by remember { mutableIntStateOf(0) }
+            var showAboutDialog by remember { mutableStateOf(false) }
+            var showStopDialog by remember { mutableStateOf(false) }
+            var showAdbCommandDialog by remember { mutableStateOf(false) }
+            var showAdbDiscoveryDialog by remember { mutableStateOf(false) }
+            var showWadbNotEnabledDialog by remember { mutableStateOf(false) }
+            var showAdbPairDialog by remember { mutableStateOf(false) }
 
             ShizukuExpressiveTheme {
-                Scaffold(
-                    contentWindowInsets = WindowInsets.navigationBars,
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            tonalElevation = 8.dp
-                        ) {
-                            NavigationBarItem(
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 },
-                                icon = { ShizukuIcon(R.drawable.ic_server_ok_24dp, contentDescription = null) },
-                                label = { Text(stringResource(R.string.app_name)) }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 },
-                                icon = { ShizukuIcon(R.drawable.ic_system_icon, contentDescription = null) },
-                                label = { Text(stringResource(R.string.modules_title)) }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 2,
-                                onClick = { selectedTab = 2 },
-                                icon = { ShizukuIcon(R.drawable.ic_terminal_24, contentDescription = null) },
-                                label = { Text("Comput") }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 3,
-                                onClick = { selectedTab = 3 },
-                                icon = { ShizukuIcon(R.drawable.ic_action_settings_24dp, contentDescription = null) },
-                                label = { Text(stringResource(R.string.settings_title)) }
-                            )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    HomeScreen(
+                        serviceResource = serviceResource,
+                        grantedResource = grantedResource,
+                        localNetworkPermissionState = localNetworkPermissionState,
+                        isPrimaryUser = UserHandleCompat.myUserId() == 0,
+                        isRooted = EnvironmentUtils.isRooted(),
+                        onRefresh = {
+                            checkServerStatus()
+                            appsModel.load()
+                        },
+                        onSettings = { startActivity(Intent(this@HomeActivity, SettingsActivity::class.java)) },
+                        onAbout = { showAboutDialog = true },
+                        onStop = { showStopDialog = true },
+                        onModules = { startActivity(Intent(this@HomeActivity, ModulesActivity::class.java)) },
+                        onManageApps = { startActivity(Intent(this@HomeActivity, ApplicationManagementActivity::class.java)) },
+                        onTerminal = { startActivity(Intent(this@HomeActivity, ShellTutorialActivity::class.java)) },
+                        onStartRoot = ::startRoot,
+                        onStartWirelessAdb = { 
+                            runWithLocalNetworkAccess { 
+                                startWirelessAdb(
+                                    onShowDiscovery = { showAdbDiscoveryDialog = true },
+                                    onShowNotEnabled = { showWadbNotEnabledDialog = true }
+                                ) 
+                            } 
+                        },
+                        onPairWirelessAdb = { 
+                            runWithLocalNetworkAccess { 
+                                pairWirelessAdb(onShowPair = { showAdbPairDialog = true }) 
+                            } 
+                        },
+                        onOpenWirelessGuide = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.ADB_ANDROID11.get()) },
+                        onShowAdbCommand = { showAdbCommandDialog = true },
+                        onOpenAdbHelp = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.ADB.get()) },
+                        onOpenAdbPermissionHelp = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.ADB_PERMISSION.get()) },
+                        onLearnMore = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.HOME.get()) },
+                        onCopyDiagnostics = { copyDiagnostics(it) },
+                        onRequestLocalNetworkPermission = {
+                            requestLocalNetworkPermission { permissionRefreshTick.intValue++ }
                         }
-                    }
-                ) { innerPadding ->
-                    Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                        androidx.compose.animation.AnimatedContent(
-                            targetState = selectedTab,
-                            transitionSpec = {
-                                fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
-                            },
-                            label = "tab_transition"
-                        ) { targetTab ->
-                            when (targetTab) {
-                                0 -> HomeScreen(
-                                    serviceResource = serviceResource,
-                                    grantedResource = grantedResource,
-                                    localNetworkPermissionState = localNetworkPermissionState,
-                                    isPrimaryUser = UserHandleCompat.myUserId() == 0,
-                                    isRooted = EnvironmentUtils.isRooted(),
-                                    onRefresh = {
-                                        checkServerStatus()
-                                        appsModel.load()
-                                    },
-                                    onAbout = ::showAboutDialog,
-                                    onStop = ::showStopDialog,
-                                    onManageApps = { startActivity(Intent(this@HomeActivity, ApplicationManagementActivity::class.java)) },
-                                    onTerminal = { startActivity(Intent(this@HomeActivity, ShellTutorialActivity::class.java)) },
-                                    onStartRoot = ::startRoot,
-                                    onStartWirelessAdb = { runWithLocalNetworkAccess(::startWirelessAdb) },
-                                    onPairWirelessAdb = { runWithLocalNetworkAccess(::pairWirelessAdb) },
-                                    onOpenWirelessGuide = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.ADB_ANDROID11.get()) },
-                                    onShowAdbCommand = ::showAdbCommandDialog,
-                                    onOpenAdbHelp = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.ADB.get()) },
-                                    onOpenAdbPermissionHelp = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.ADB_PERMISSION.get()) },
-                                    onLearnMore = { CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, Helps.HOME.get()) },
-                                    onCopyDiagnostics = { copyDiagnostics(it) },
-                                    onRequestLocalNetworkPermission = {
-                                        requestLocalNetworkPermission { permissionRefreshTick.intValue++ }
-                                    },
-                                    onStartDhizuku = { startDhizukuMode() },
-                                    dhizukuEnabled = ModuleSettings.isDhizukuEnabled()
-                                )
-                                1 -> moe.shizuku.manager.module.ModulesScreen(onOpenWebUi = {
-                                    startActivity(
-                                        Intent(this@HomeActivity, moe.shizuku.manager.module.ModuleWebViewActivity::class.java)
-                                            .putExtra(moe.shizuku.manager.module.ModuleWebViewActivity.EXTRA_MODULE_ID, it)
-                                    )
-                                })
-                                2 -> moe.shizuku.manager.logs.ComputScreen()
-                                3 -> moe.shizuku.manager.settings.SettingsScreen()
+                    )
+
+                    if (showAboutDialog) {
+                        HomeAboutDialog(
+                            onDismiss = { showAboutDialog = false },
+                            onSourceCode = {
+                                CustomTabsHelper.launchUrlOrCopy(this@HomeActivity, "https://github.com/RikkaApps/Shizuku")
                             }
-                        }
+                        )
+                    }
+
+                    if (showStopDialog) {
+                        HomeStopDialog(
+                            onDismiss = { showStopDialog = false },
+                            onConfirm = {
+                                try {
+                                    Shizuku.exit()
+                                } catch (_: Throwable) {
+                                }
+                            }
+                        )
+                    }
+
+                    if (showAdbCommandDialog) {
+                        HomeAdbCommandDialog(
+                            command = Starter.adbCommand,
+                            onDismiss = { showAdbCommandDialog = false },
+                            onCopy = {
+                                if (ClipboardUtils.put(this@HomeActivity, Starter.adbCommand)) {
+                                    Toast.makeText(
+                                        this@HomeActivity,
+                                        getString(R.string.toast_copied_to_clipboard, Starter.adbCommand),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            onSend = {
+                                var intent = Intent(Intent.ACTION_SEND)
+                                intent.type = "text/plain"
+                                intent.putExtra(Intent.EXTRA_TEXT, Starter.adbCommand)
+                                intent = Intent.createChooser(
+                                    intent,
+                                    getString(R.string.home_adb_dialog_view_command_button_send)
+                                )
+                                startActivity(intent)
+                            }
+                        )
+                    }
+
+                    if (showAdbDiscoveryDialog) {
+                        HomeAdbDiscoveryDialog(
+                            onDismiss = { showAdbDiscoveryDialog = false },
+                            onStart = { port ->
+                                startAndDismiss(port)
+                                showAdbDiscoveryDialog = false
+                            }
+                        )
+                    }
+
+                    if (showWadbNotEnabledDialog) {
+                        HomeWadbNotEnabledDialog(
+                            onDismiss = { showWadbNotEnabledDialog = false }
+                        )
+                    }
+
+                    if (showAdbPairDialog) {
+                        HomeAdbPairDialog(
+                            onDismiss = { showAdbPairDialog = false }
+                        )
                     }
                 }
             }
@@ -267,6 +282,16 @@ abstract class HomeActivity : AppActivity() {
 
         Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
         Shizuku.addBinderDeadListener(binderDeadListener)
+    }
+
+    private fun startAndDismiss(port: Int) {
+        val host = "127.0.0.1"
+        val intent = Intent(this, StarterActivity::class.java).apply {
+            putExtra(StarterActivity.EXTRA_IS_ROOT, false)
+            putExtra(StarterActivity.EXTRA_HOST, host)
+            putExtra(StarterActivity.EXTRA_PORT, port)
+        }
+        startActivity(intent)
     }
 
     override fun onResume() {
@@ -291,23 +316,9 @@ abstract class HomeActivity : AppActivity() {
     }
 
     private fun showAboutDialog() {
-        startActivity(Intent(this, AboutActivity::class.java))
     }
 
     private fun showStopDialog() {
-        if (!Shizuku.pingBinder()) return
-
-        MaterialAlertDialogBuilder(this)
-            .setMessage(R.string.dialog_stop_message)
-            .setPositiveButton(android.R.string.ok) { _: DialogInterface?, _: Int ->
-                try {
-                    moe.shizuku.manager.service.WatchdogManager.expectingDeath = true
-                    Shizuku.exit()
-                } catch (_: Throwable) {
-                }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
     }
 
     private fun startRoot() {
@@ -318,9 +329,9 @@ abstract class HomeActivity : AppActivity() {
         )
     }
 
-    private fun startWirelessAdb() {
+    private fun startWirelessAdb(onShowDiscovery: () -> Unit, onShowNotEnabled: () -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            AdbDialogFragment().show(supportFragmentManager, "adb")
+            onShowDiscovery()
             return
         }
 
@@ -334,52 +345,22 @@ abstract class HomeActivity : AppActivity() {
                 }
             )
         } else {
-            WadbNotEnabledDialogFragment().show(supportFragmentManager, "wadb_not_enabled")
+            onShowNotEnabled()
         }
     }
 
-    private fun pairWirelessAdb() {
+    private fun pairWirelessAdb(onShowPair: () -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
 
-        if ((display?.displayId ?: -1) > 0) {
-            AdbPairDialogFragment().show(supportFragmentManager, "adb_pair")
+        val isWatch = EnvironmentUtils.isWatch(this)
+        if (isWatch || (display?.displayId ?: -1) > 0 || isInMultiWindowMode) {
+            onShowPair()
         } else {
             startActivity(Intent(this, moe.shizuku.manager.adb.AdbPairingTutorialActivity::class.java))
         }
     }
 
     private fun showAdbCommandDialog() {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.home_adb_button_view_command)
-            .setMessage(
-                RikkaHtmlCompat.fromHtml(
-                    getString(
-                        R.string.home_adb_dialog_view_command_message,
-                        Starter.adbCommand
-                    )
-                )
-            )
-            .setPositiveButton(R.string.home_adb_dialog_view_command_copy_button) { _, _ ->
-                if (ClipboardUtils.put(this, Starter.adbCommand)) {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.toast_copied_to_clipboard, Starter.adbCommand),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .setNeutralButton(R.string.home_adb_dialog_view_command_button_send) { _, _ ->
-                var intent = Intent(Intent.ACTION_SEND)
-                intent.type = "text/plain"
-                intent.putExtra(Intent.EXTRA_TEXT, Starter.adbCommand)
-                intent = Intent.createChooser(
-                    intent,
-                    getString(R.string.home_adb_dialog_view_command_button_send)
-                )
-                startActivity(intent)
-            }
-            .show()
     }
 
     private fun runWithLocalNetworkAccess(action: () -> Unit) {
@@ -407,7 +388,7 @@ abstract class HomeActivity : AppActivity() {
     private fun buildLocalNetworkPermissionState(): LocalNetworkPermissionState {
         val permission = when {
             Build.VERSION.SDK_INT >= SDK_ANDROID_17 -> PERMISSION_ACCESS_LOCAL_NETWORK
-            Build.VERSION.SDK_INT >= SDK_ANDROID_13 -> Manifest.permission.NEARBY_WIFI_DEVICES
+            Build.VERSION.SDK_INT >= SDK_ANDROID_16 -> Manifest.permission.NEARBY_WIFI_DEVICES
             else -> null
         }
 
@@ -424,25 +405,15 @@ abstract class HomeActivity : AppActivity() {
             .setPrimaryClip(ClipData.newPlainText(getString(R.string.home_diagnostics_title), text))
         Toast.makeText(this, R.string.home_diagnostics_copied, Toast.LENGTH_SHORT).show()
     }
-    private fun startDhizukuMode() {
-        startActivity(
-            Intent(this, StarterActivity::class.java).apply {
-                putExtra(StarterActivity.EXTRA_IS_ROOT, false)
-                putExtra(StarterActivity.EXTRA_IS_DHIZUKU, true)
-            }
-        )
-    }
-
 
     companion object {
-        private const val SDK_ANDROID_13 = 33
         private const val SDK_ANDROID_16 = 36
         private const val SDK_ANDROID_17 = 37
         private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
     }
 }
 
-private data class LocalNetworkPermissionState(
+internal data class LocalNetworkPermissionState(
     val permission: String?,
     val required: Boolean,
     val granted: Boolean
@@ -460,6 +431,7 @@ private data class HomeButtonSpec(
 )
 
 @Composable
+
 private fun HomeScreen(
     serviceResource: Resource<ServiceStatus>?,
     grantedResource: Resource<Int>?,
@@ -467,8 +439,10 @@ private fun HomeScreen(
     isPrimaryUser: Boolean,
     isRooted: Boolean,
     onRefresh: () -> Unit,
+    onSettings: () -> Unit,
     onAbout: () -> Unit,
     onStop: () -> Unit,
+    onModules: () -> Unit,
     onManageApps: () -> Unit,
     onTerminal: () -> Unit,
     onStartRoot: () -> Unit,
@@ -480,9 +454,116 @@ private fun HomeScreen(
     onOpenAdbPermissionHelp: () -> Unit,
     onLearnMore: () -> Unit,
     onCopyDiagnostics: (String) -> Unit,
-    onRequestLocalNetworkPermission: () -> Unit,
-    onStartDhizuku: () -> Unit,
-    dhizukuEnabled: Boolean
+    onRequestLocalNetworkPermission: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isWatch = androidx.compose.runtime.remember(context) { moe.shizuku.manager.utils.EnvironmentUtils.isWatch(context) }
+    val isTv = androidx.compose.runtime.remember(context) { moe.shizuku.manager.utils.EnvironmentUtils.isTV(context) }
+    if (isWatch) {
+        moe.shizuku.manager.ui.compose.WearShizukuTheme {
+            WearHomeScreen(
+                serviceResource = serviceResource,
+                grantedResource = grantedResource,
+                localNetworkPermissionState = localNetworkPermissionState,
+                isPrimaryUser = isPrimaryUser,
+                isRooted = isRooted,
+                onRefresh = onRefresh,
+                onSettings = onSettings,
+                onAbout = onAbout,
+                onStop = onStop,
+                onModules = onModules,
+                onManageApps = onManageApps,
+                onTerminal = onTerminal,
+                onStartRoot = onStartRoot,
+                onStartWirelessAdb = onStartWirelessAdb,
+                onPairWirelessAdb = onPairWirelessAdb,
+                onOpenWirelessGuide = onOpenWirelessGuide,
+                onShowAdbCommand = onShowAdbCommand,
+                onOpenAdbHelp = onOpenAdbHelp,
+                onOpenAdbPermissionHelp = onOpenAdbPermissionHelp,
+                onLearnMore = onLearnMore,
+                onCopyDiagnostics = onCopyDiagnostics,
+                onRequestLocalNetworkPermission = onRequestLocalNetworkPermission
+            )
+        }
+    } else if (isTv) {
+        moe.shizuku.manager.ui.compose.TvShizukuTheme {
+            TVHomeScreen(
+                serviceResource = serviceResource,
+                grantedResource = grantedResource,
+                localNetworkPermissionState = localNetworkPermissionState,
+                isPrimaryUser = isPrimaryUser,
+                isRooted = isRooted,
+                onRefresh = onRefresh,
+                onSettings = onSettings,
+                onAbout = onAbout,
+                onStop = onStop,
+                onModules = onModules,
+                onManageApps = onManageApps,
+                onTerminal = onTerminal,
+                onStartRoot = onStartRoot,
+                onStartWirelessAdb = onStartWirelessAdb,
+                onPairWirelessAdb = onPairWirelessAdb,
+                onOpenWirelessGuide = onOpenWirelessGuide,
+                onShowAdbCommand = onShowAdbCommand,
+                onOpenAdbHelp = onOpenAdbHelp,
+                onOpenAdbPermissionHelp = onOpenAdbPermissionHelp,
+                onLearnMore = onLearnMore,
+                onCopyDiagnostics = onCopyDiagnostics,
+                onRequestLocalNetworkPermission = onRequestLocalNetworkPermission
+            )
+        }
+    } else {
+        PhoneHomeScreen(
+            serviceResource = serviceResource,
+            grantedResource = grantedResource,
+            localNetworkPermissionState = localNetworkPermissionState,
+            isPrimaryUser = isPrimaryUser,
+            isRooted = isRooted,
+            onRefresh = onRefresh,
+            onSettings = onSettings,
+            onAbout = onAbout,
+            onStop = onStop,
+            onModules = onModules,
+            onManageApps = onManageApps,
+            onTerminal = onTerminal,
+            onStartRoot = onStartRoot,
+            onStartWirelessAdb = onStartWirelessAdb,
+            onPairWirelessAdb = onPairWirelessAdb,
+            onOpenWirelessGuide = onOpenWirelessGuide,
+            onShowAdbCommand = onShowAdbCommand,
+            onOpenAdbHelp = onOpenAdbHelp,
+            onOpenAdbPermissionHelp = onOpenAdbPermissionHelp,
+            onLearnMore = onLearnMore,
+            onCopyDiagnostics = onCopyDiagnostics,
+            onRequestLocalNetworkPermission = onRequestLocalNetworkPermission
+        )
+    }
+}
+
+@Composable private fun PhoneHomeScreen(
+    serviceResource: Resource<ServiceStatus>?,
+    grantedResource: Resource<Int>?,
+    localNetworkPermissionState: LocalNetworkPermissionState,
+    isPrimaryUser: Boolean,
+    isRooted: Boolean,
+    onRefresh: () -> Unit,
+    onSettings: () -> Unit,
+    onAbout: () -> Unit,
+    onStop: () -> Unit,
+    onModules: () -> Unit,
+    onManageApps: () -> Unit,
+    onTerminal: () -> Unit,
+    onStartRoot: () -> Unit,
+    onStartWirelessAdb: () -> Unit,
+    onPairWirelessAdb: () -> Unit,
+    onOpenWirelessGuide: () -> Unit,
+    onShowAdbCommand: () -> Unit,
+    onOpenAdbHelp: () -> Unit,
+    onOpenAdbPermissionHelp: () -> Unit,
+    onLearnMore: () -> Unit,
+    onCopyDiagnostics: (String) -> Unit,
+    onRequestLocalNetworkPermission: () -> Unit
 ) {
     val context = LocalContext.current
     val status = serviceResource?.data ?: ServiceStatus()
@@ -496,6 +577,7 @@ private fun HomeScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             TopAppBar(
                 title = {
@@ -506,6 +588,12 @@ private fun HomeScreen(
                     )
                 },
                 actions = {
+                    IconButton(onClick = onSettings) {
+                        ShizukuIcon(
+                            icon = R.drawable.ic_action_settings_24dp,
+                            contentDescription = stringResource(R.string.settings_title)
+                        )
+                    }
                     IconButton(onClick = onRefresh) {
                         ShizukuIcon(
                             icon = R.drawable.ic_server_restart,
@@ -556,7 +644,8 @@ private fun HomeScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .windowInsetsPadding(WindowInsets.navigationBars),
             contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -567,8 +656,6 @@ private fun HomeScreen(
                 )
             }
 
-
-
             if (adbPermission) {
                 item {
                     ManageAppsCard(
@@ -577,7 +664,19 @@ private fun HomeScreen(
                         onClick = onManageApps
                     )
                 }
-
+                item {
+                    SimpleActionCard(
+                        icon = R.drawable.ic_adb_24dp,
+                        title = stringResource(R.string.modules_title),
+                        body = if (running) {
+                            stringResource(R.string.home_modules_description)
+                        } else {
+                            stringResource(R.string.home_status_service_not_running, stringResource(R.string.app_name))
+                        },
+                        enabled = running,
+                        onClick = onModules
+                    )
+                }
                 item {
                     SimpleActionCard(
                         icon = R.drawable.ic_terminal_24,
@@ -640,11 +739,6 @@ private fun HomeScreen(
                 if (!isRooted) {
                     item {
                         RootCard(rootRestart, onStartRoot)
-                    }
-                }
-                if (dhizukuEnabled) {
-                    item {
-                        DhizukuCard(onStartDhizuku)
                     }
                 }
             }
@@ -1044,11 +1138,7 @@ private fun htmlToPlainText(value: String): String {
 private fun buildServiceSummary(context: android.content.Context, status: ServiceStatus): String {
     if (!status.isRunning) return ""
 
-    val user = when {
-        ShizukuSettings.getLastLaunchMode() == ShizukuSettings.LaunchMethod.DHIZUKU -> "dhizuku"
-        status.uid == 0 -> "root"
-        else -> "adb"
-    }
+    val user = if (status.uid == 0) "root" else "adb"
     val version = "${status.apiVersion}.${status.patchVersion}"
     val latestVersion = "${Shizuku.getLatestServiceVersion()}.${ShizukuApiConstants.SERVER_PATCH_VERSION}"
     val raw = if (
@@ -1088,46 +1178,3 @@ private fun buildDiagnostics(
         appendLine("Local network: $localNetwork")
     }.trim()
 }
-
-
-@Composable
-private fun TcpModeCard(onStartTcpMode: () -> Unit) {
-    HomeCard(
-        icon = R.drawable.ic_server_ok_24dp,
-        title = stringResource(R.string.settings_tcp_mode),
-        body = stringResource(R.string.settings_tcp_mode_summary)
-    ) {
-        HomeButtons(
-            listOf(
-                HomeButtonSpec(
-                    label = android.R.string.ok,
-                    icon = R.drawable.ic_baseline_link_24,
-                    primary = true,
-                    onClick = onStartTcpMode
-                )
-            )
-        )
-    }
-}
-
-@Composable
-private fun DhizukuCard(onStartDhizuku: () -> Unit) {
-    HomeCard(
-        icon = R.drawable.ic_system_icon,
-        title = htmlStringResource(R.string.home_dhizuku_title),
-        body = htmlStringResource(R.string.home_dhizuku_description)
-    ) {
-        HomeButtons(
-            listOf(
-                HomeButtonSpec(
-                    label = R.string.home_root_button_start,
-                    icon = R.drawable.ic_server_start_24dp,
-                    primary = true,
-                    onClick = onStartDhizuku
-                )
-            )
-        )
-    }
-}
-
-

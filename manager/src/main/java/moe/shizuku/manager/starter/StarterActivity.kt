@@ -4,8 +4,12 @@ import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -36,7 +40,6 @@ import java.net.ConnectException
 import javax.net.ssl.SSLProtocolException
 
 private class NotRootedException : Exception()
-private class DhizukuException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 class StarterActivity : AppActivity() {
 
@@ -47,7 +50,6 @@ class StarterActivity : AppActivity() {
         ViewModel(
             this,
             intent.getBooleanExtra(EXTRA_IS_ROOT, true),
-            intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false),
             intent.getStringExtra(EXTRA_HOST),
             intent.getIntExtra(EXTRA_PORT, 0)
         )
@@ -65,12 +67,10 @@ class StarterActivity : AppActivity() {
         super.onCreate(savedInstanceState)
 
         val startedWithRoot = intent.getBooleanExtra(EXTRA_IS_ROOT, true)
-        val startedWithDhizuku = intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false)
 
         viewModel.output.observe(this) {
             val output = it.data.orEmpty().trim()
-            val finished = output.endsWith("info: shizuku_starter exit with 0") || (startedWithDhizuku && output.endsWith("✓ Initialization complete."))
-            if (!waitingForService && finished) {
+            if (!waitingForService && output.endsWith("info: shizuku_starter exit with 0")) {
                 waitingForService = true
                 viewModel.appendOutput("")
                 viewModel.appendOutput("Waiting for service...")
@@ -89,33 +89,6 @@ class StarterActivity : AppActivity() {
                 }
                 binderReceivedListener = listener
                 Shizuku.addBinderReceivedListenerSticky(listener)
-            } else if (it.status == Status.ERROR) {
-                var message = 0
-                when (it.error) {
-                    is AdbKeyException -> {
-                        message = R.string.adb_error_key_store
-                    }
-                    is NotRootedException -> {
-                        message = R.string.start_with_root_failed
-                    }
-                    is ConnectException -> {
-                        message = R.string.cannot_connect_port
-                    }
-                    is SSLProtocolException -> {
-                        message = R.string.adb_pair_required
-                    }
-                    is DhizukuException -> {
-                        // Already logged in the output
-                    }
-
-                }
-
-                if (message != 0) {
-                    MaterialAlertDialogBuilder(this)
-                        .setMessage(message)
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show()
-                }
             }
         }
 
@@ -123,39 +96,92 @@ class StarterActivity : AppActivity() {
             val outputResource by viewModel.output.observeAsState()
             val output = outputResource?.data.orEmpty()
             val failed = outputResource?.status == Status.ERROR
-
-            ShizukuExpressiveTheme {
-                ShizukuLazyScaffold(
-                    title = stringResource(R.string.starter),
-                    onNavigateUp = { finish() },
-                    navigationIcon = R.drawable.ic_close_24
-                ) {
-                    item {
-                        val startedWithRoot = intent.getBooleanExtra(EXTRA_IS_ROOT, true)
-                        val startedWithDhizuku = intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false)
-                        ExpressiveCard(
-                            icon = when {
-                                startedWithDhizuku -> R.drawable.ic_system_icon
-                                startedWithRoot -> R.drawable.ic_root_24dp
-                                else -> R.drawable.ic_adb_24dp
-                            },
-                            title = when {
-                                startedWithDhizuku -> HtmlText(R.string.home_dhizuku_title)
-                                startedWithRoot -> HtmlText(R.string.home_root_title)
-                                else -> HtmlText(R.string.home_wireless_adb_title)
-                            },
-                            body = if (failed) {
-                                stringResource(R.string.notification_service_start_failed)
-                            } else {
-                                stringResource(R.string.notification_service_starting)
-                            },
-                            danger = failed
-                        )
+            var errorToShow by remember(outputResource) {
+                mutableIntStateOf(if (outputResource?.status == Status.ERROR) {
+                    when (outputResource?.error) {
+                        is AdbKeyException -> R.string.adb_error_key_store
+                        is NotRootedException -> R.string.start_with_root_failed
+                        is ConnectException -> R.string.cannot_connect_port
+                        is SSLProtocolException -> R.string.adb_pair_required
+                        else -> 0
                     }
-                    item {
-                        MonospaceLog(
-                            text = output.ifBlank { stringResource(R.string.starting_root_shell) }
+                } else 0)
+            }
+
+            val isWatch = moe.shizuku.manager.utils.EnvironmentUtils.isWatch(this@StarterActivity)
+            val isTv = moe.shizuku.manager.utils.EnvironmentUtils.isTV(this@StarterActivity)
+            if (isWatch) {
+                moe.shizuku.manager.ui.compose.WearShizukuTheme {
+                    Box {
+                        WearStarterScreen(
+                            output = output,
+                            failed = failed,
+                            startedWithRoot = startedWithRoot
                         )
+
+                        if (errorToShow != 0) {
+                            moe.shizuku.manager.home.HomeErrorDialog(
+                                message = stringResource(errorToShow),
+                                onDismiss = { errorToShow = 0 }
+                            )
+                        }
+                    }
+                }
+            } else if (isTv) {
+                moe.shizuku.manager.ui.compose.TvShizukuTheme {
+                    Box {
+                        TvStarterScreen(
+                            onNavigateUp = { finish() },
+                            output = output,
+                            failed = failed,
+                            startedWithRoot = startedWithRoot
+                        )
+
+                        if (errorToShow != 0) {
+                            moe.shizuku.manager.home.HomeErrorDialog(
+                                message = stringResource(errorToShow),
+                                onDismiss = { errorToShow = 0 }
+                            )
+                        }
+                    }
+                }
+            } else {
+                ShizukuExpressiveTheme {
+                    Box {
+                        ShizukuLazyScaffold(
+                            title = stringResource(R.string.starter),
+                            onNavigateUp = { finish() },
+                            navigationIcon = R.drawable.ic_close_24
+                        ) {
+                            item {
+                                ExpressiveCard(
+                                    icon = if (startedWithRoot) R.drawable.ic_root_24dp else R.drawable.ic_adb_24dp,
+                                    title = if (startedWithRoot) {
+                                        HtmlText(R.string.home_root_title)
+                                    } else {
+                                        HtmlText(R.string.home_wireless_adb_title)
+                                    },
+                                    body = if (failed) {
+                                        stringResource(R.string.notification_service_start_failed)
+                                    } else {
+                                        stringResource(R.string.notification_service_starting)
+                                    },
+                                    danger = failed
+                                )
+                            }
+                            item {
+                                MonospaceLog(
+                                    text = output.ifBlank { stringResource(R.string.starting_root_shell) }
+                                )
+                            }
+                        }
+
+                        if (errorToShow != 0) {
+                            moe.shizuku.manager.home.HomeErrorDialog(
+                                message = stringResource(errorToShow),
+                                onDismiss = { errorToShow = 0 }
+                            )
+                        }
                     }
                 }
             }
@@ -165,13 +191,12 @@ class StarterActivity : AppActivity() {
     companion object {
 
         const val EXTRA_IS_ROOT = "$EXTRA.IS_ROOT"
-        const val EXTRA_IS_DHIZUKU = "$EXTRA.IS_DHIZUKU"
         const val EXTRA_HOST = "$EXTRA.HOST"
         const val EXTRA_PORT = "$EXTRA.PORT"
     }
 }
 
-private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host: String?, port: Int) : androidx.lifecycle.ViewModel() {
+private class ViewModel(context: Context, root: Boolean, host: String?, port: Int) : androidx.lifecycle.ViewModel() {
 
     private val sb = StringBuilder()
     private val outputLock = Any()
@@ -181,10 +206,10 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
     init {
         try {
-            when {
-                dhizuku -> startDhizuku(context)
-                root -> startRoot()
-                else -> startAdb(host!!, port)
+            if (root) {
+                startRoot()
+            } else {
+                startAdb(host!!, port)
             }
         } catch (e: Throwable) {
             postResult(e)
@@ -240,8 +265,6 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
                 }
             }
 
-            ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.ROOT)
-
             Shell.cmd(Starter.internalCommand).to(object : CallbackList<String?>() {
                 override fun onAddElement(s: String?) {
                     appendRaw(s)
@@ -273,7 +296,6 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
             AdbClient(host, port, key).runCatching {
                 connect()
-                ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.ADB)
                 shellCommand(Starter.internalCommand) {
                     synchronized(outputLock) {
                         sb.append(String(it))
@@ -286,104 +308,6 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
                 appendLine("\n${Log.getStackTraceString(it)}")
                 postResult(it)
-            }
-        }
-    }
-
-    private fun startDhizuku(context: Context) {
-        synchronized(outputLock) {
-            sb.append("Starting with Dhizuku (Device Owner)...").append('\n').append('\n')
-        }
-        postResult()
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                appendLine("Initializing Dhizuku...")
-                val initResult = com.rosan.dhizuku.api.Dhizuku.init(context.applicationContext)
-                if (!initResult) {
-                    appendLine("✗ Dhizuku init failed. Is Dhizuku app installed and active?")
-                    postResult(DhizukuException("Dhizuku init failed"))
-                    return@launch
-                }
-                appendLine("✓ Dhizuku initialized\n")
-
-                appendLine("Checking Dhizuku permission...")
-                if (!com.rosan.dhizuku.api.Dhizuku.isPermissionGranted()) {
-                    appendLine("Requesting Dhizuku permission...")
-                    val permissionGranted = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
-                        com.rosan.dhizuku.api.Dhizuku.requestPermission(object : com.rosan.dhizuku.api.DhizukuRequestPermissionListener() {
-                            override fun onRequestPermission(grantResult: Int) {
-                                cont.resume(grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {}
-                            }
-                        })
-                    }
-                    if (!permissionGranted) {
-                        appendLine("✗ Dhizuku permission denied")
-                        postResult(DhizukuException("Dhizuku permission denied"))
-                        return@launch
-                    }
-                }
-                appendLine("✓ Dhizuku permission granted\n")
-
-                appendLine("Binding Dhizuku user service...")
-                val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
-                    android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
-                )
-                var connection: android.content.ServiceConnection? = null
-                val serviceResult = kotlinx.coroutines.withTimeoutOrNull(10000) {
-                    kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
-                        val conn = object : android.content.ServiceConnection {
-                            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                                if (cont.isActive) cont.resumeWith(Result.success(service))
-                            }
-                            override fun onServiceDisconnected(name: android.content.ComponentName?) {}
-                        }
-                        connection = conn
-                        val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
-                        if (!bound && cont.isActive) {
-                            cont.resumeWith(Result.success(null))
-                        }
-                        cont.invokeOnCancellation {
-                            try {
-                                com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
-                            } catch (e: Exception) { }
-                        }
-                    }
-                }
-
-                if (serviceResult == null) {
-                    appendLine("✗ Dhizuku service binding failed or timed out.")
-                    appendLine("  Make sure Dhizuku is set as Device Owner and is active.")
-                    postResult(DhizukuException("Dhizuku service binding failed"))
-                    return@launch
-                }
-                appendLine("✓ Dhizuku service connected\n")
-
-                try {
-                    val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
-
-                    // Directly run starter command using Dhizuku Device Owner privileges!
-                    appendLine("Starting Shevery server via Dhizuku Device Owner privileges...")
-                    ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.DHIZUKU)
-
-                    dhizukuService.runCommand(Starter.internalCommand)
-
-                    appendLine("✓ Starter command executed successfully.")
-                    appendLine("Waiting for Shevery service to initialize...")
-                    kotlinx.coroutines.delay(2000)
-                    appendLine("✓ Initialization complete.")
-                    postResult()
-                } finally {
-                    connection?.let { conn ->
-                        try {
-                            com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
-                        } catch (e: Exception) { }
-                    }
-                }
-            } catch (e: Exception) {
-                appendLine("\n✗ Dhizuku error: ${e.message}")
-                appendLine(Log.getStackTraceString(e))
-                postResult(DhizukuException("Dhizuku failed: ${e.message}", e))
             }
         }
     }
