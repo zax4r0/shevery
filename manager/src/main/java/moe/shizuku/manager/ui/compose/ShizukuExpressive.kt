@@ -52,10 +52,8 @@ import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -81,7 +79,6 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,7 +86,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -97,18 +93,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.text.HtmlCompat
-import androidx.tv.material3.ColorScheme as TvColorScheme
-import androidx.tv.material3.MaterialTheme as TvMaterialTheme
-import androidx.tv.material3.darkColorScheme as tvDarkColorScheme
-import androidx.tv.material3.lightColorScheme as tvLightColorScheme
-import androidx.wear.compose.material3.ColorScheme as WearColorScheme
-import androidx.wear.compose.material3.Icon as WearIcon
-import androidx.wear.compose.material3.LocalContentColor as WearLocalContentColor
-import androidx.wear.compose.material3.MaterialTheme as WearMaterialTheme
-import androidx.wear.compose.material3.ScreenScaffold as WearScaffold
-import androidx.wear.compose.material3.Text as WearText
-import androidx.wear.compose.material3.TimeText as WearTimeText
-import androidx.wear.compose.material3.dynamicColorScheme as WearDynamicColorScheme
 import moe.shizuku.manager.R
 import moe.shizuku.manager.app.ThemeHelper
 
@@ -129,8 +113,16 @@ fun ShizukuExpressiveTheme(content: @Composable () -> Unit) {
             dynamicDarkColorScheme(context)
         ThemeHelper.isUsingSystemColor() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             dynamicLightColorScheme(context)
-        dark -> darkColorScheme()
-        else -> lightColorScheme()
+        dark -> darkColorScheme(
+            primary = Color(0xFFB1B8DF),
+            secondary = Color(0xFFB9C7E8),
+            tertiary = Color(0xFFE2B8C8)
+        )
+        else -> lightColorScheme(
+            primary = Color(0xFF3F51B5),
+            secondary = Color(0xFF52669B),
+            tertiary = Color(0xFF8C4A62)
+        )
     }
     val colorScheme = if (dark && ThemeHelper.isBlackNightTheme(context)) {
         baseScheme.copy(
@@ -142,182 +134,11 @@ fun ShizukuExpressiveTheme(content: @Composable () -> Unit) {
         baseScheme
     }
 
-    val density = LocalDensity.current
-
-    CompositionLocalProvider(LocalDensity provides density) {
-        MaterialExpressiveTheme(
-            colorScheme = colorScheme,
-            motionScheme = MotionScheme.expressive(),
-            content = content
-        )
-    }
-}
-
-@Composable
-fun WearShizukuTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val dark = isSystemInDarkTheme()
-
-    val fallbackColorScheme = WearColorScheme()
-
-    val colorScheme = if (ThemeHelper.isUsingSystemColor() && Build.VERSION.SDK_INT >= 31) {
-        WearDynamicColorScheme(context) ?: fallbackColorScheme
-    } else {
-        fallbackColorScheme
-    }
-
-    val finalColorScheme = if (dark && ThemeHelper.isBlackNightTheme(context)) {
-        colorScheme.copy(
-            background = Color.Black,
-            onBackground = Color.White,
-            surfaceContainerLow = Color.Black,
-            surfaceContainer = Color(0xFF0B0B0B),
-            surfaceContainerHigh = Color(0xFF141414),
-            onSurface = Color.White,
-            onSurfaceVariant = Color(0xFFE0E0E0),
-            outline = Color(0xFF999999),
-            onPrimary = Color.Black,
-            onSecondary = Color.Black
-        )
-    } else {
-        colorScheme
-    }
-
-    WearMaterialTheme(
-        colorScheme = finalColorScheme
-    ) {
-        CompositionLocalProvider(
-            androidx.compose.material3.LocalContentColor provides finalColorScheme.onSurface,
-            WearLocalContentColor provides finalColorScheme.onSurface,
-            content = content
-        )
-    }
-}
-
-@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
-@Composable
-fun TvShizukuTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val dark = isSystemInDarkTheme()
-
-    val useDynamic = ThemeHelper.isUsingSystemColor() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-
-    val baseScheme = when {
-        useDynamic && dark -> dynamicDarkColorScheme(context)
-        useDynamic -> dynamicLightColorScheme(context)
-        dark -> darkColorScheme()
-        else -> lightColorScheme()
-    }
-
-    var colorScheme = TvColorScheme(
-        primary = baseScheme.primary,
-        onPrimary = baseScheme.onPrimary,
-        primaryContainer = baseScheme.primaryContainer,
-        onPrimaryContainer = baseScheme.onPrimaryContainer,
-        secondary = baseScheme.secondary,
-        onSecondary = baseScheme.onSecondary,
-        secondaryContainer = baseScheme.secondaryContainer,
-        onSecondaryContainer = baseScheme.onSecondaryContainer,
-        tertiary = baseScheme.tertiary,
-        onTertiary = baseScheme.onTertiary,
-        tertiaryContainer = baseScheme.tertiaryContainer,
-        onTertiaryContainer = baseScheme.onTertiaryContainer,
-        background = baseScheme.background,
-        onBackground = baseScheme.onBackground,
-        surface = baseScheme.surface,
-        onSurface = baseScheme.onSurface,
-        surfaceVariant = baseScheme.surfaceVariant,
-        onSurfaceVariant = baseScheme.onSurfaceVariant,
-        error = baseScheme.error,
-        onError = baseScheme.onError,
-        errorContainer = baseScheme.errorContainer,
-        onErrorContainer = baseScheme.onErrorContainer,
-        border = baseScheme.outline,
-        borderVariant = baseScheme.outlineVariant,
-        scrim = baseScheme.scrim,
-        inverseSurface = baseScheme.inverseSurface,
-        inverseOnSurface = baseScheme.inverseOnSurface,
-        inversePrimary = baseScheme.inversePrimary,
-        surfaceTint = baseScheme.surfaceTint
+    MaterialExpressiveTheme(
+        colorScheme = colorScheme,
+        motionScheme = MotionScheme.expressive(),
+        content = content
     )
-
-    var phoneColorScheme = baseScheme
-    if (dark && ThemeHelper.isBlackNightTheme(context)) {
-        colorScheme = colorScheme.copy(
-            background = Color.Black,
-            surface = Color.Black,
-            surfaceVariant = Color.Black
-        )
-        phoneColorScheme = baseScheme.copy(
-            background = Color.Black,
-            surface = Color.Black,
-            surfaceVariant = Color.Black,
-            surfaceContainer = Color.Black,
-            surfaceContainerLow = Color.Black,
-            surfaceContainerLowest = Color.Black,
-            surfaceContainerHigh = Color.Black,
-            surfaceContainerHighest = Color.Black
-        )
-    }
-
-    TvMaterialTheme(
-        colorScheme = colorScheme
-    ) {
-        androidx.compose.material3.MaterialTheme(
-            colorScheme = phoneColorScheme
-        ) {
-            androidx.tv.material3.Surface(
-                modifier = Modifier.fillMaxSize(),
-                colors = androidx.tv.material3.SurfaceDefaults.colors(
-                    containerColor = colorScheme.background,
-                    contentColor = colorScheme.onSurface
-                )
-            ) {
-                CompositionLocalProvider(
-                    androidx.compose.material3.LocalContentColor provides colorScheme.onSurface,
-                    androidx.tv.material3.LocalContentColor provides colorScheme.onSurface,
-                    content = content
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun WearScreenScaffold(
-    content: @Composable (androidx.wear.compose.foundation.lazy.TransformingLazyColumnState) -> Unit
-) {
-    val state = androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState()
-    WearScaffold(
-        scrollState = state,
-        timeText = { WearTimeText() }
-    ) {
-        content(state)
-    }
-}
-
-@Composable
-fun WearScreenTitle(
-    icon: ImageVector,
-    title: String
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(bottom = 8.dp)
-    ) {
-        WearIcon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = WearMaterialTheme.colorScheme.primary
-        )
-        Spacer(Modifier.width(8.dp))
-        WearText(
-            text = title,
-            style = WearMaterialTheme.typography.titleMedium,
-            color = WearMaterialTheme.colorScheme.primary
-        )
-    }
 }
 
 @Composable
@@ -469,7 +290,7 @@ fun ExpressiveButtons(buttons: List<ExpressiveButtonSpec>) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        for (button in buttons) {
+        buttons.forEach { button ->
             if (button.primary) {
                 Button(
                     enabled = button.enabled,
@@ -728,21 +549,6 @@ fun ExpressiveSwitch(
 
 @Composable
 fun ShizukuIcon(
-    imageVector: ImageVector,
-    contentDescription: String? = null,
-    modifier: Modifier = Modifier,
-    tint: Color = LocalContentColor.current
-) {
-    Icon(
-        imageVector = imageVector,
-        contentDescription = contentDescription,
-        modifier = modifier,
-        tint = tint
-    )
-}
-
-@Composable
-fun ShizukuIcon(
     @DrawableRes icon: Int,
     contentDescription: String? = null,
     modifier: Modifier = Modifier,
@@ -750,7 +556,7 @@ fun ShizukuIcon(
 ) {
     val imageVector = roundedIconFor(icon)
     if (imageVector != null) {
-        ShizukuIcon(
+        Icon(
             imageVector = imageVector,
             contentDescription = contentDescription,
             modifier = modifier,
@@ -790,7 +596,6 @@ private fun roundedIconFor(@DrawableRes icon: Int): ImageVector? {
         R.drawable.ic_content_copy_24 -> Icons.Rounded.ContentCopy
         R.drawable.ic_terminal_24 -> Icons.Rounded.Terminal
         R.drawable.ic_code_24dp -> Icons.Rounded.Code
-        R.drawable.ic_server_ok_24dp -> Icons.Rounded.Check
         else -> null
     }
 }
