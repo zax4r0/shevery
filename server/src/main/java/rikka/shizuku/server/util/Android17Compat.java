@@ -20,7 +20,6 @@ public class Android17Compat {
     private static final int DEVICE_ID_DEFAULT = 0; // Context.DEVICE_ID_DEFAULT
 
     private static volatile Object sPackageManager;
-    private static volatile Method sGetInstalledPackagesMethod;
     private static volatile Method sGetPackageInfoMethod;
     private static volatile Method sGetApplicationInfoMethod;
     
@@ -48,44 +47,7 @@ public class Android17Compat {
         return sPermissionManager;
     }
 
-    private static volatile Method sGetListMethod;
 
-    @SuppressWarnings("unchecked")
-    public static List<PackageInfo> getInstalledPackages(long flags, int userId) {
-        try {
-            return PackageManagerApis.getInstalledPackagesNoThrow(flags, userId);
-        } catch (NoSuchMethodError e) {
-            try {
-                Object pm = getPackageManager();
-                if (pm == null) return new ArrayList<>();
-
-                if (sGetInstalledPackagesMethod == null) {
-                    synchronized (Android17Compat.class) {
-                        if (sGetInstalledPackagesMethod == null) {
-                            sGetInstalledPackagesMethod = findMethod(pm, "getInstalledPackages", long.class);
-                        }
-                    }
-                }
-
-                if (sGetInstalledPackagesMethod != null) {
-                    Object result = invokeMethod(pm, sGetInstalledPackagesMethod, flags, userId);
-                    if (result != null) {
-                        if (sGetListMethod == null) {
-                            synchronized (Android17Compat.class) {
-                                if (sGetListMethod == null) {
-                                    sGetListMethod = result.getClass().getMethod("getList");
-                                }
-                            }
-                        }
-                        return (List<PackageInfo>) sGetListMethod.invoke(result);
-                    }
-                }
-            } catch (Throwable ex) {
-                Log.e(TAG, "Android 17 fallback for getInstalledPackages failed", ex);
-            }
-            return new ArrayList<>();
-        }
-    }
 
 
     public static PackageInfo getPackageInfo(String packageName, long flags, int userId) {
