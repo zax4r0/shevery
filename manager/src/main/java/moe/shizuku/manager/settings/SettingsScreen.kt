@@ -57,6 +57,14 @@ import rikka.shizuku.manager.ShizukuLocales
 import java.util.Locale
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.widget.Toast
+import moe.shizuku.manager.utils.BackupRestoreUtil
 
 
 @Composable
@@ -67,6 +75,7 @@ fun SettingsScreen() {
     val componentName = ComponentName(context.packageName, BootCompleteReceiver::class.java.name)
 
     val prefs = ShizukuSettings.getPreferences()
+
     var startOnBoot by remember {
         mutableStateOf(packageManager.isComponentEnabled(componentName))
     }
@@ -117,6 +126,60 @@ fun SettingsScreen() {
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showGeminiModelDialog by remember { mutableStateOf(false) }
     var recreateTick by remember { mutableIntStateOf(0) }
+
+    val scope = rememberCoroutineScope()
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        BackupRestoreUtil.backup(context, output)
+                    } ?: error("Failed to open output stream")
+                }
+            }.onSuccess {
+                Toast.makeText(context, "Backup completed successfully", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(context, "Backup failed: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        BackupRestoreUtil.restore(context, input)
+                    } ?: error("Failed to open input stream")
+                }
+            }.onSuccess {
+                Toast.makeText(context, "Restore completed successfully", Toast.LENGTH_SHORT).show()
+                startOnBoot = packageManager.isComponentEnabled(componentName)
+                tcpMode = ShizukuSettings.isTcpMode()
+                languageTag = prefs.getString(LANGUAGE, "SYSTEM") ?: "SYSTEM"
+                nightMode = ShizukuSettings.getNightMode()
+                blackNightTheme = ThemeHelper.isBlackNightTheme(context)
+                useSystemColor = ThemeHelper.isUsingSystemColor()
+                moduleAccessMode = ModuleSettings.getAccessMode()
+                customPermissions = ModuleSettings.getCustomPermissions()
+                moduleBackground = ModuleSettings.allowBackgroundActions()
+                recommandWebUi = ModuleSettings.recommandForWebUi()
+                recommandAction = ModuleSettings.recommandForAction()
+                computApiKey = ModuleSettings.getComputApiKey()
+                computRecommand = ModuleSettings.isComputRecommandEnabled()
+                computGeminiModel = ModuleSettings.getComputGeminiModel()
+                recreateTick++
+            }.onFailure {
+                Toast.makeText(context, "Restore failed: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     val localeOptions = remember(languageTag) {
         buildLocaleOptions(context, languageTag)
@@ -331,6 +394,28 @@ fun SettingsScreen() {
                     onCheckedChange = { enabled ->
                         ModuleSettings.setComputRecommandEnabled(enabled)
                         computRecommand = enabled
+                    }
+                )
+            }
+        }
+
+        item {
+            SettingsGroup(title = "Backup & Restore") {
+                SettingsRow(
+                    icon = R.drawable.ic_outline_arrow_upward_24,
+                    title = "Backup Settings & Modules",
+                    summary = "Export configuration and modules to a ZIP file",
+                    onClick = {
+                        backupLauncher.launch("shevery_backup_${System.currentTimeMillis()}.zip")
+                    }
+                )
+                GroupDivider()
+                SettingsRow(
+                    icon = R.drawable.ic_server_restart,
+                    title = "Restore Settings & Modules",
+                    summary = "Import configuration and modules from a ZIP file",
+                    onClick = {
+                        restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
                     }
                 )
             }

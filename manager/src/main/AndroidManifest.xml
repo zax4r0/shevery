@@ -161,7 +161,8 @@
         <service
             android:name=".dhizuku.DhizukuService"
             android:enabled="true"
-            android:exported="true" />
+            android:exported="true"
+            android:permission="moe.shizuku.manager.permission.API_V23" />
 
         <receiver
             android:name=".receiver.BootCompleteReceiver"

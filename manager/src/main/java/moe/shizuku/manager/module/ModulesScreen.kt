@@ -74,6 +74,10 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ui.compose.MonospaceLog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import moe.shizuku.manager.utils.AiExplainUtil
 import moe.shizuku.manager.ui.compose.ShizukuIcon
 import moe.shizuku.manager.ui.compose.ShizukuLazyScaffold
 import moe.shizuku.manager.ui.compose.ExpressiveSwitch
@@ -93,6 +97,9 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
     var deleteTarget by remember { mutableStateOf<AdbModule?>(null) }
     var pendingCommand by remember { mutableStateOf<ModuleCommandRequest?>(null) }
     var runningModuleId by remember { mutableStateOf<String?>(null) }
+    var lastRunModule by remember { mutableStateOf<AdbModule?>(null) }
+    var aiExplanation by remember { mutableStateOf<String?>(null) }
+    var aiLoading by remember { mutableStateOf(false) }
 
     fun reload() {
         scope.launch {
@@ -101,6 +108,7 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
     }
 
     fun runModuleAction(module: AdbModule) {
+        lastRunModule = module
         scope.launch {
             runningModuleId = module.id
             output = runCatching {
@@ -221,11 +229,79 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
 
     output?.let { (title, text) ->
         AlertDialog(
-            onDismissRequest = { output = null },
+            onDismissRequest = {
+                output = null
+                aiExplanation = null
+                aiLoading = false
+            },
             title = { Text(title) },
-            text = { MonospaceLog(text) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    MonospaceLog(text)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Gemini AI Explanation",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (aiLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    } else if (aiExplanation != null) {
+                        Text(
+                            text = aiExplanation!!,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        val apiKey = ModuleSettings.getComputApiKey()
+                        val hasApiKey = apiKey.isNotBlank()
+                        Button(
+                            onClick = {
+                                aiLoading = true
+                                scope.launch {
+                                    val moduleInfo = lastRunModule?.let { "Module: ${it.name} (${it.id})" } ?: "Unknown Module"
+                                    val scriptName = lastRunModule?.actionScript?.name ?: "action.sh"
+                                    aiExplanation = AiExplainUtil.explainFailure(
+                                        contextStr = "Shevery Android app, running module action script",
+                                        inputDetail = "$moduleInfo, script = $scriptName",
+                                        outputLog = text,
+                                        apiKey = apiKey
+                                    )
+                                    aiLoading = false
+                                }
+                            },
+                            enabled = hasApiKey,
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Ask Gemini")
+                        }
+                        if (!hasApiKey) {
+                            Text(
+                                text = "Please configure your Google AI Studio API Key in Shevery Settings to use Gemini AI Explanation.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
             confirmButton = {
-                TextButton(onClick = { output = null }) {
+                TextButton(
+                    onClick = {
+                        output = null
+                        aiExplanation = null
+                        aiLoading = false
+                    }
+                ) {
                     Text(stringResource(android.R.string.ok))
                 }
             },

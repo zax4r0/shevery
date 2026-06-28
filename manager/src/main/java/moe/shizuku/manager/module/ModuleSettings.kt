@@ -358,4 +358,14 @@ object ModuleSettings {
     fun setComputAiExplainEnabled(value: Boolean) {
         ShizukuSettings.getPreferences().edit().putBoolean(KEY_COMPUT_AI_EXPLAIN, value).apply()
     }
+
+    private const val KEY_COMPUT_MACROS = "comput_macros"
+
+    fun getComputMacros(): String {
+        return ShizukuSettings.getPreferences().getString(KEY_COMPUT_MACROS, "{}") ?: "{}"
+    }
+
+    fun setComputMacros(value: String) {
+        ShizukuSettings.getPreferences().edit().putString(KEY_COMPUT_MACROS, value).apply()
+    }
 }

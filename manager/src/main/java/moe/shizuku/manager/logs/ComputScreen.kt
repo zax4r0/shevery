@@ -73,9 +73,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import androidx.compose.runtime.mutableStateListOf
 import moe.shizuku.manager.R
 import moe.shizuku.manager.module.ModuleSettings
 import moe.shizuku.manager.ui.compose.ShizukuLazyScaffold
+import moe.shizuku.manager.utils.AiExplainUtil
 import moe.shizuku.server.IShizukuService
 import org.json.JSONArray
 import org.json.JSONObject
@@ -96,6 +98,58 @@ fun ComputScreen() {
     var aiExplanation by remember { mutableStateOf("") }
     var showReCommandPrompt by remember { mutableStateOf(false) }
 
+    var isRecording by remember { mutableStateOf(false) }
+    val recordedCommands = remember { mutableStateListOf<String>() }
+    var showSaveMacroDialog by remember { mutableStateOf(false) }
+    var macroNameInput by remember { mutableStateOf("") }
+
+    var commandiumPrompt by remember { mutableStateOf("") }
+    var isCommandiumGenerating by remember { mutableStateOf(false) }
+    var generatedCommandiumResult by remember { mutableStateOf("") }
+
+    var savedMacros by remember {
+        mutableStateOf<Map<String, List<String>>>(
+            try {
+                val json = JSONObject(ModuleSettings.getComputMacros())
+                val map = mutableMapOf<String, List<String>>()
+                json.keys().forEach { key ->
+                    val arr = json.getJSONArray(key)
+                    val list = mutableListOf<String>()
+                    for (i in 0 until arr.length()) {
+                        list.add(arr.getString(i))
+                    }
+                    map[key] = list
+                }
+                map.toMap()
+            } catch (e: Exception) {
+                emptyMap()
+            }
+        )
+    }
+
+    fun saveMacro(name: String) {
+        val updated = savedMacros.toMutableMap()
+        updated[name] = recordedCommands.toList()
+        savedMacros = updated.toMap()
+        val json = JSONObject()
+        savedMacros.forEach { (k, v) ->
+            json.put(k, JSONArray(v))
+        }
+        ModuleSettings.setComputMacros(json.toString())
+        recordedCommands.clear()
+    }
+
+    fun deleteMacro(name: String) {
+        val updated = savedMacros.toMutableMap()
+        updated.remove(name)
+        savedMacros = updated.toMap()
+        val json = JSONObject()
+        savedMacros.forEach { (k, v) ->
+            json.put(k, JSONArray(v))
+        }
+        ModuleSettings.setComputMacros(json.toString())
+    }
+
     val errorColor = Color(0xFFEF5350)
     val warningColor = Color(0xFFFFB300)
     val normalColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -104,158 +158,219 @@ fun ComputScreen() {
         buildAnnotatedLog(outputLog, errorColor, warningColor, normalColor)
     }
 
+    suspend fun executeCommandInternal(cmd: String): Pair<String, Boolean> {
+        val finalCmd = if (isAdbMode) {
+            var trimmed = cmd.trim()
+            if (trimmed.startsWith("adb shell ")) {
+                trimmed = trimmed.substring(10).trim()
+            } else if (trimmed.startsWith("adb shell")) {
+                trimmed = trimmed.substring(9).trim()
+            } else if (trimmed.startsWith("shell ")) {
+                trimmed = trimmed.substring(6).trim()
+            } else if (trimmed.startsWith("shell")) {
+                trimmed = trimmed.substring(5).trim()
+            } else if (trimmed.startsWith("adb ")) {
+                trimmed = trimmed.substring(4).trim()
+            } else if (trimmed == "adb") {
+                trimmed = "adb_help"
+            }
+
+            if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length >= 2) {
+                trimmed = trimmed.substring(1, trimmed.length - 1).trim()
+            } else if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
+                trimmed = trimmed.substring(1, trimmed.length - 1).trim()
+            }
+
+            if (trimmed == "adb_help" || trimmed == "help" || trimmed == "--help" || trimmed == "-h") {
+                "adb_internal_help"
+            } else if (trimmed == "devices") {
+                "adb_internal_devices"
+            } else if (trimmed.startsWith("install")) {
+                "adb_internal_install"
+            } else if (trimmed.startsWith("push") || trimmed.startsWith("pull")) {
+                "adb_internal_file_transfer"
+            } else {
+                trimmed
+            }
+        } else {
+            cmd.trim()
+        }
+
+        if (finalCmd.isBlank()) {
+            return Pair("[E] Error: Command translates to empty string.", true)
+        }
+
+        val result = withContext(Dispatchers.IO) {
+            if (isAdbMode) {
+                when (finalCmd) {
+                    "adb_internal_help" -> {
+                        return@withContext Pair("""
+                            Android Debug Bridge (Shevery Console Bridge)
+                            You are already connected to the device's privileged shell via Shevery.
+                            
+                            For on-device shell commands, type them directly without 'adb' or 'adb shell'.
+                            Examples:
+                              pm list packages
+                              settings get secure android_id
+                              dumpsys battery
+                            
+                            Note: Host-side commands like 'adb devices', 'adb push/pull', or 'adb install' are not supported directly inside the device shell, but you can use standard shell equivalents (e.g. 'pm install').
+                        """.trimIndent(), false)
+                    }
+                    "adb_internal_devices" -> {
+                        return@withContext Pair("""
+                            List of devices attached
+                            local_shevery_device    device
+                            
+                            [I] You are currently inside the shell of this device.
+                        """.trimIndent(), false)
+                    }
+                    "adb_internal_install" -> {
+                        return@withContext Pair("[E] 'adb install' is a host-side command.\nTo install an APK directly on the device, use:\n  pm install <path_to_apk>", true)
+                    }
+                    "adb_internal_file_transfer" -> {
+                        return@withContext Pair("[E] 'adb push' and 'adb pull' are host-side file transfer commands.\nUse 'cp' or 'mv' to copy/move files on the device, or use a file manager.", true)
+                    }
+                }
+            }
+
+            if (!Shizuku.pingBinder()) {
+                return@withContext Pair("Error: Privileged Shevery Service is not running. Please start the service first.", true)
+            }
+            try {
+                val binder = Shizuku.getBinder() ?: return@withContext Pair("Error: Unable to retrieve Shevery binder.", true)
+                val service = IShizukuService.Stub.asInterface(binder)
+                val remote = service.newProcess(
+                    arrayOf("sh", "-c", finalCmd),
+                    null,
+                    null
+                )
+                
+                val stdoutPfd = remote.getInputStream()
+                val stderrPfd = remote.getErrorStream()
+
+                var stdoutText = ""
+                var stderrText = ""
+                val stdoutThread = Thread {
+                    try {
+                        stdoutText = readStreamTail(stdoutPfd)
+                    } catch (ignore: Exception) { }
+                }
+                val stderrThread = Thread {
+                    try {
+                        stderrText = readStreamTail(stderrPfd)
+                    } catch (ignore: Exception) { }
+                }
+                stdoutThread.start()
+                stderrThread.start()
+                
+                val finished = remote.waitForTimeout(120L, java.util.concurrent.TimeUnit.SECONDS.name)
+                val exitCode = if (finished) {
+                    remote.exitValue()
+                } else {
+                    remote.destroy()
+                    try { stdoutPfd.close() } catch (ignore: Exception) {}
+                    try { stderrPfd.close() } catch (ignore: Exception) {}
+                    124
+                }
+                stdoutThread.join(1000)
+                stderrThread.join(1000)
+                
+                val resString = buildString {
+                    if (stdoutText.isNotBlank()) append(stdoutText.trim())
+                    if (stderrText.isNotBlank()) {
+                        if (isNotEmpty()) append("\n")
+                        append("[E] ")
+                        append(stderrText.trim())
+                    }
+                    if (!finished) {
+                        if (isNotEmpty()) append("\n")
+                        append("[E] Command timed out after 120 seconds.")
+                    } else if (exitCode != 0) {
+                        if (isNotEmpty()) append("\n")
+                        append("[E] Command exited with code $exitCode.")
+                    }
+                    if (isEmpty()) append("Command completed with no output.")
+                }
+                val hasFailed = !finished || exitCode != 0 || stderrText.isNotBlank()
+                Pair(resString, hasFailed)
+            } catch (e: Exception) {
+                Pair("[E] Shell execution failed: ${e.message}", true)
+            }
+        }
+        return result
+    }
+
     fun runShellCommand(cmd: String) {
         if (cmd.isBlank()) return
         scope.launch {
             isRunning = true
             aiExplanation = ""
             
-            val finalCmd = if (isAdbMode) {
-                var trimmed = cmd.trim()
-                if (trimmed.startsWith("adb shell ")) {
-                    trimmed = trimmed.substring(10).trim()
-                } else if (trimmed.startsWith("adb shell")) {
-                    trimmed = trimmed.substring(9).trim()
-                } else if (trimmed.startsWith("shell ")) {
-                    trimmed = trimmed.substring(6).trim()
-                } else if (trimmed.startsWith("shell")) {
-                    trimmed = trimmed.substring(5).trim()
-                } else if (trimmed.startsWith("adb ")) {
-                    trimmed = trimmed.substring(4).trim()
-                } else if (trimmed == "adb") {
-                    trimmed = "adb_help"
-                }
-
-                if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length >= 2) {
-                    trimmed = trimmed.substring(1, trimmed.length - 1).trim()
-                } else if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
-                    trimmed = trimmed.substring(1, trimmed.length - 1).trim()
-                }
-
-                if (trimmed == "adb_help" || trimmed == "help" || trimmed == "--help" || trimmed == "-h") {
-                    "adb_internal_help"
-                } else if (trimmed == "devices") {
-                    "adb_internal_devices"
-                } else if (trimmed.startsWith("install")) {
-                    "adb_internal_install"
-                } else if (trimmed.startsWith("push") || trimmed.startsWith("pull")) {
-                    "adb_internal_file_transfer"
-                } else {
-                    trimmed
-                }
-            } else {
-                cmd.trim()
-            }
-
-            if (finalCmd.isBlank()) {
-                outputLog = "[E] Error: Command translates to empty string."
-                isRunning = false
-                return@launch
+            if (isRecording) {
+                recordedCommands.add(cmd)
             }
 
             if (isAdbMode) {
-                outputLog = "ADB Command Translation Mode Active\nOriginal: $cmd\nTranslated: $finalCmd\nExecuting...\n"
+                outputLog = "ADB Command Translation Mode Active\nOriginal: $cmd\nExecuting...\n"
             } else {
-                outputLog = "Executing: $finalCmd ...\n"
+                outputLog = "Executing: $cmd ...\n"
             }
-            
-            val result = withContext(Dispatchers.IO) {
-                if (isAdbMode) {
-                    when (finalCmd) {
-                        "adb_internal_help" -> {
-                            return@withContext """
-                                Android Debug Bridge (Shevery Console Bridge)
-                                You are already connected to the device's privileged shell via Shevery.
-                                
-                                For on-device shell commands, type them directly without 'adb' or 'adb shell'.
-                                Examples:
-                                  pm list packages
-                                  settings get secure android_id
-                                  dumpsys battery
-                                
-                                Note: Host-side commands like 'adb devices', 'adb push/pull', or 'adb install' are not supported directly inside the device shell, but you can use standard shell equivalents (e.g. 'pm install').
-                            """.trimIndent()
-                        }
-                        "adb_internal_devices" -> {
-                            return@withContext """
-                                List of devices attached
-                                local_shevery_device    device
-                                
-                                [I] You are currently inside the shell of this device.
-                            """.trimIndent()
-                        }
-                        "adb_internal_install" -> {
-                            return@withContext "[E] 'adb install' is a host-side command.\nTo install an APK directly on the device, use:\n  pm install <path_to_apk>"
-                        }
-                        "adb_internal_file_transfer" -> {
-                            return@withContext "[E] 'adb push' and 'adb pull' are host-side file transfer commands.\nUse 'cp' or 'mv' to copy/move files on the device, or use a file manager."
-                        }
-                    }
-                }
 
-                if (!Shizuku.pingBinder()) {
-                    return@withContext "Error: Privileged Shevery Service is not running. Please start the service first."
-                }
-                try {
-                    val binder = Shizuku.getBinder() ?: return@withContext "Error: Unable to retrieve Shevery binder."
-                    val service = IShizukuService.Stub.asInterface(binder)
-                    val remote = service.newProcess(
-                        arrayOf("sh", "-c", finalCmd),
-                        null,
-                        null
-                    )
-                    
-                    val stdoutPfd = remote.getInputStream()
-                    val stderrPfd = remote.getErrorStream()
-
-                    var stdoutText = ""
-                    var stderrText = ""
-                    val stdoutThread = Thread {
-                        try {
-                            stdoutText = readStreamTail(stdoutPfd)
-                        } catch (ignore: Exception) { }
-                    }
-                    val stderrThread = Thread {
-                        try {
-                            stderrText = readStreamTail(stderrPfd)
-                        } catch (ignore: Exception) { }
-                    }
-                    stdoutThread.start()
-                    stderrThread.start()
-                    
-                    val finished = remote.waitForTimeout(120L, java.util.concurrent.TimeUnit.SECONDS.name)
-                    val exitCode = if (finished) {
-                        remote.exitValue()
-                    } else {
-                        remote.destroy()
-                        try { stdoutPfd.close() } catch (ignore: Exception) {}
-                        try { stderrPfd.close() } catch (ignore: Exception) {}
-                        124
-                    }
-                    stdoutThread.join(1000)
-                    stderrThread.join(1000)
-                    
-                    buildString {
-                        if (stdoutText.isNotBlank()) append(stdoutText.trim())
-                        if (stderrText.isNotBlank()) {
-                            if (isNotEmpty()) append("\n")
-                            append("[E] ")
-                            append(stderrText.trim())
-                        }
-                        if (!finished) {
-                            if (isNotEmpty()) append("\n")
-                            append("[E] Command timed out after 120 seconds.")
-                        } else if (exitCode != 0) {
-                            if (isNotEmpty()) append("\n")
-                            append("[E] Command exited with code $exitCode.")
-                        }
-                        if (isEmpty()) append("Command completed with no output.")
-                    }
-                } catch (e: Exception) {
-                    "[E] Shell execution failed: ${e.message}"
-                }
-            }
+            val (result, hasFailed) = executeCommandInternal(cmd)
             outputLog = result
+            isRunning = false
+
+            if (hasFailed && ModuleSettings.isComputAiExplainEnabled()) {
+                val apiKey = ModuleSettings.getComputApiKey()
+                if (apiKey.isNotBlank()) {
+                    scope.launch {
+                        isExplaining = true
+                        aiExplanation = AiExplainUtil.explainFailure(
+                            contextStr = "Shevery Comput Console Shell Command Execution",
+                            inputDetail = cmd,
+                            outputLog = result,
+                            apiKey = apiKey
+                        )
+                        isExplaining = false
+                    }
+                }
+            }
+        }
+    }
+
+    fun runMacro(macroName: String, commands: List<String>) {
+        scope.launch {
+            isRunning = true
+            aiExplanation = ""
+            val fullLog = StringBuilder()
+            fullLog.append("Running macro: $macroName\n\n")
+            outputLog = fullLog.toString()
+
+            for (cmd in commands) {
+                fullLog.append("> Executing command: $cmd\n")
+                outputLog = fullLog.toString()
+                
+                val (result, hasFailed) = executeCommandInternal(cmd)
+                fullLog.append(result).append("\n\n")
+                outputLog = fullLog.toString()
+
+                if (hasFailed && ModuleSettings.isComputAiExplainEnabled()) {
+                    val apiKey = ModuleSettings.getComputApiKey()
+                    if (apiKey.isNotBlank()) {
+                        scope.launch {
+                            isExplaining = true
+                            aiExplanation = AiExplainUtil.explainFailure(
+                                contextStr = "Shevery Macro Command Execution ($macroName - $cmd)",
+                                inputDetail = cmd,
+                                outputLog = result,
+                                apiKey = apiKey
+                            )
+                            isExplaining = false
+                        }
+                    }
+                }
+            }
             isRunning = false
         }
     }
@@ -541,6 +656,318 @@ fun ComputScreen() {
                 }
             }
         }
+
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = "Commandium",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Commandium AI Assistant",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = "Generate shell commands using natural language. Gemini will output a raw, copyable command.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = commandiumPrompt,
+                        onValueChange = { commandiumPrompt = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("What command do you need?") },
+                        placeholder = { Text("e.g. Find all files larger than 10MB in /sdcard") },
+                        maxLines = 3,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        )
+                    )
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isCommandiumGenerating = true
+                                val apiKey = ModuleSettings.getComputApiKey()
+                                generatedCommandiumResult = AiExplainUtil.generateCommand(commandiumPrompt, apiKey)
+                                isCommandiumGenerating = false
+                            }
+                        },
+                        enabled = !isCommandiumGenerating && commandiumPrompt.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        if (isCommandiumGenerating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Ask Commandium")
+                        }
+                    }
+
+                    if (generatedCommandiumResult.isNotBlank()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+                            shape = MaterialTheme.shapes.medium,
+                            border = CardDefaults.outlinedCardBorder()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Generated Command:",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                SelectionContainer {
+                                    Text(
+                                        text = generatedCommandiumResult,
+                                        style = TextStyle(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+                                                shape = MaterialTheme.shapes.small
+                                            )
+                                            .padding(8.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            command = generatedCommandiumResult
+                                            Toast.makeText(context, "Command pasted to input", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                        shape = MaterialTheme.shapes.medium
+                                    ) {
+                                        Text("Use command")
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("Commandium", generatedCommandiumResult))
+                                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.ContentCopy,
+                                            contentDescription = "Copy command"
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Console Macros",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        if (isRecording) {
+                            Button(
+                                onClick = {
+                                    showSaveMacroDialog = true
+                                    isRecording = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350)),
+                                shape = MaterialTheme.shapes.large
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Color.White, shape = RoundedCornerShape(5.dp))
+                                )
+                                Spacer(Modifier.size(6.dp))
+                                Text("Stop (${recordedCommands.size})")
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    recordedCommands.clear()
+                                    isRecording = true
+                                },
+                                shape = MaterialTheme.shapes.large
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Color.Red, shape = RoundedCornerShape(5.dp))
+                                )
+                                Spacer(Modifier.size(6.dp))
+                                Text("Record Macro")
+                            }
+                        }
+                    }
+
+                    if (isRecording) {
+                        Text(
+                            text = "Recording active. Run commands using the main input to add them to this macro.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFEF5350),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (recordedCommands.isNotEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.Black.copy(alpha = 0.05f), MaterialTheme.shapes.medium)
+                                    .padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                recordedCommands.forEachIndexed { i, c ->
+                                    Text(
+                                        text = "${i + 1}. $c",
+                                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
+
+                    Text(
+                        text = "Saved Macros",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    if (savedMacros.isEmpty()) {
+                        Text(
+                            text = "No saved macros yet. Click 'Record Macro' to start recording console commands.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            savedMacros.forEach { (name, cmds) ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+                                    shape = MaterialTheme.shapes.large,
+                                    border = CardDefaults.outlinedCardBorder()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = name,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color.Black.copy(alpha = 0.03f), MaterialTheme.shapes.small)
+                                                .padding(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            cmds.take(3).forEach { c ->
+                                                Text(
+                                                    text = "> $c",
+                                                    maxLines = 1,
+                                                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (cmds.size > 3) {
+                                                Text(
+                                                    text = "... and ${cmds.size - 3} more",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Button(
+                                                onClick = { runMacro(name, cmds) },
+                                                enabled = !isRunning,
+                                                modifier = Modifier.weight(1f),
+                                                shape = MaterialTheme.shapes.medium
+                                            ) {
+                                                Text("Run")
+                                            }
+                                            TextButton(
+                                                onClick = { deleteMacro(name) },
+                                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                                shape = MaterialTheme.shapes.medium
+                                            ) {
+                                                Text("Delete")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (showReCommandPrompt) {
@@ -581,6 +1008,52 @@ fun ComputScreen() {
             },
             dismissButton = {
                 TextButton(onClick = { showReCommandPrompt = false }) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = MaterialTheme.shapes.extraLarge
+        )
+    }
+
+    if (showSaveMacroDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveMacroDialog = false },
+            title = { Text("Save Macro") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Enter a name for the recorded macro:")
+                    OutlinedTextField(
+                        value = macroNameInput,
+                        onValueChange = { macroNameInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Macro Name") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (macroNameInput.isNotBlank()) {
+                            saveMacro(macroNameInput.trim())
+                            macroNameInput = ""
+                            showSaveMacroDialog = false
+                        }
+                    },
+                    enabled = macroNameInput.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        recordedCommands.clear()
+                        macroNameInput = ""
+                        showSaveMacroDialog = false
+                    }
+                ) {
                     Text("Cancel")
                 }
             },
