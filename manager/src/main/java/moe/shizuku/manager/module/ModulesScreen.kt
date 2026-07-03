@@ -8,6 +8,7 @@ package moe.shizuku.manager.module
 
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,8 +23,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,26 +32,33 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -73,14 +81,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import moe.shizuku.manager.R
+import moe.shizuku.manager.ui.compose.ExpressiveSwitch
 import moe.shizuku.manager.ui.compose.MonospaceLog
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import moe.shizuku.manager.utils.AiExplainUtil
 import moe.shizuku.manager.ui.compose.ShizukuIcon
 import moe.shizuku.manager.ui.compose.ShizukuLazyScaffold
-import moe.shizuku.manager.ui.compose.ExpressiveSwitch
+import moe.shizuku.manager.utils.AiExplainUtil
 
 private val MODULE_MIME_TYPES = arrayOf(
     "application/zip",
@@ -92,7 +97,14 @@ private val MODULE_MIME_TYPES = arrayOf(
 fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var selectedTab by remember { mutableStateOf(0) } // 0: Installed, 1: Catalog
     var modules by remember { mutableStateOf<List<AdbModule>>(emptyList(), neverEqualPolicy()) }
+    var catalogModules by remember { mutableStateOf<List<CatalogModule>>(emptyList(), neverEqualPolicy()) }
+    var catalogLoading by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var checkingUpdates by remember { mutableStateOf(false) }
+    var updatingModuleId by remember { mutableStateOf<String?>(null) }
+    var downloadingCatalogId by remember { mutableStateOf<String?>(null) }
     var output by remember { mutableStateOf<Pair<String, String>?>(null) }
     var deleteTarget by remember { mutableStateOf<AdbModule?>(null) }
     var pendingCommand by remember { mutableStateOf<ModuleCommandRequest?>(null) }
@@ -104,6 +116,78 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
     fun reload() {
         scope.launch {
             modules = AdbModuleManager.listModules(context)
+        }
+    }
+
+    fun checkAllUpdates() {
+        scope.launch {
+            checkingUpdates = true
+            Toast.makeText(context, context.getString(R.string.modules_checking_updates), Toast.LENGTH_SHORT).show()
+            var foundUpdates = 0
+            val updated = modules.map { m ->
+                val info = CatalogModuleManager.checkModuleUpdate(m)
+                if (info != null) foundUpdates++
+                m.copy(updateInfo = info)
+            }
+            modules = updated
+            checkingUpdates = false
+            val msg = if (foundUpdates > 0) {
+                context.getString(R.string.modules_update_available, "$foundUpdates")
+            } else {
+                context.getString(R.string.modules_no_updates)
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun updateModule(module: AdbModule) {
+        val info = module.updateInfo ?: return
+        scope.launch {
+            updatingModuleId = module.id
+            Toast.makeText(context, context.getString(R.string.modules_updating), Toast.LENGTH_SHORT).show()
+            runCatching {
+                val filename = "${module.id}-update-${info.newVersion}.zip"
+                CatalogModuleManager.downloadAndInstall(context, info.zipUrl, filename)
+            }.onSuccess {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.modules_update_success, info.newVersion),
+                    Toast.LENGTH_SHORT
+                ).show()
+                reload()
+            }.onFailure {
+                Toast.makeText(
+                    context,
+                    "Update failed: ${it.message ?: it.javaClass.simpleName}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            updatingModuleId = null
+        }
+    }
+
+    fun installFromCatalog(item: CatalogModule) {
+        scope.launch {
+            downloadingCatalogId = item.id
+            Toast.makeText(context, context.getString(R.string.modules_downloading), Toast.LENGTH_SHORT).show()
+            runCatching {
+                val filename = "${item.id}-v${item.version}.zip"
+                CatalogModuleManager.downloadAndInstall(context, item.downloadUrl, filename)
+            }.onSuccess { m ->
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.modules_install_success, m.name),
+                    Toast.LENGTH_SHORT
+                ).show()
+                reload()
+            }.onFailure {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.modules_install_failed, it.message ?: it.javaClass.simpleName),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            downloadingCatalogId = null
         }
     }
 
@@ -153,77 +237,222 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
         title = stringResource(R.string.modules_title),
         onNavigateUp = null,
         actions = {
-            FilledTonalButton(
-                modifier = Modifier.height(36.dp),
-                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                onClick = {
-                    zipLauncher.launch(MODULE_MIME_TYPES)
+            if (selectedTab == 0) {
+                OutlinedButton(
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    onClick = { checkAllUpdates() },
+                    enabled = !checkingUpdates
+                ) {
+                    if (checkingUpdates) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    } else {
+                        ShizukuIcon(
+                            R.drawable.ic_outline_file_download_24,
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(16.dp)
+                        )
+                        Text(stringResource(R.string.modules_check_updates))
+                    }
                 }
-            ) {
-                ShizukuIcon(
-                    R.drawable.ic_outline_arrow_upward_24,
-                    modifier = Modifier
-                        .padding(end = 6.dp)
-                        .size(16.dp)
-                )
-                Text(stringResource(R.string.modules_install_zip))
+                Spacer(modifier = Modifier.size(8.dp))
+                FilledTonalButton(
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                    onClick = {
+                        zipLauncher.launch(MODULE_MIME_TYPES)
+                    }
+                ) {
+                    ShizukuIcon(
+                        R.drawable.ic_outline_arrow_upward_24,
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .size(16.dp)
+                    )
+                    Text(stringResource(R.string.modules_install_zip))
+                }
+            } else {
+                OutlinedButton(
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    onClick = {
+                        scope.launch {
+                            catalogLoading = true
+                            catalogModules = CatalogModuleManager.loadCatalog()
+                            catalogLoading = false
+                        }
+                    },
+                    enabled = !catalogLoading
+                ) {
+                    Text(stringResource(R.string.modules_tab_catalog))
+                }
             }
         }
     ) {
         item {
-            AnimatedContent(targetState = modules.isEmpty(), label = "module-empty-state") { empty ->
-                if (empty) {
-                    EmptyModulesCard(onInstall = { zipLauncher.launch(MODULE_MIME_TYPES) })
-                }
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                contentColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text(stringResource(R.string.modules_tab_installed)) }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = {
+                        selectedTab = 1
+                        if (catalogModules.isEmpty()) {
+                            scope.launch {
+                                catalogLoading = true
+                                catalogModules = CatalogModuleManager.loadCatalog()
+                                catalogLoading = false
+                            }
+                        }
+                    },
+                    text = { Text(stringResource(R.string.modules_tab_catalog)) }
+                )
             }
         }
-        items(modules, key = { it.id }) { module ->
-            ModuleCard(
-                module = module,
-                busy = runningModuleId == module.id,
-                trusted = ModuleSettings.isModuleTrusted(module.id),
-                modifier = Modifier.animateItem(),
-                onToggle = {
-                    scope.launch {
-                        AdbModuleManager.setEnabled(module, !module.enabled)
-                        reload()
-                    }
-                },
-                onRunAction = {
-                    if (ModuleSettings.recommandForAction()) {
-                        pendingCommand = ModuleCommandRequest(
-                            module = module,
-                            source = ModuleCommandSource.ACTION,
-                            command = module.actionCommandPreview()
-                        )
-                    } else {
-                        runModuleAction(module)
-                    }
-                },
-                onRunService = {
-                    scope.launch {
-                        runningModuleId = module.id
-                        output = runCatching {
-                            val result = AdbModuleManager.runService(module)
-                            context.getString(R.string.modules_service_result, result.exitCode) to result.combinedOutput
-                        }.getOrElse {
-                            context.getString(R.string.modules_service_failed) to (it.message ?: it.javaClass.simpleName)
-                        }
-                        runningModuleId = null
-                    }
-                },
-                onOpenWebUi = {
-                    onOpenWebUi(module.id)
-                },
-                onDelete = { deleteTarget = module },
-                onTrustChange = { trusted ->
-                    scope.launch {
-                        ModuleSettings.setModuleTrusted(module.id, trusted)
-                        AdbModuleManager.setEnabled(module, trusted)
-                        reload()
+
+        if (selectedTab == 0) {
+            item {
+                AnimatedContent(targetState = modules.isEmpty(), label = "module-empty-state") { empty ->
+                    if (empty) {
+                        EmptyModulesCard(onInstall = { zipLauncher.launch(MODULE_MIME_TYPES) })
                     }
                 }
-            )
+            }
+            items(modules, key = { it.id }) { module ->
+                ModuleCard(
+                    module = module,
+                    busy = runningModuleId == module.id,
+                    updating = updatingModuleId == module.id,
+                    trusted = ModuleSettings.isModuleTrusted(module.id),
+                    modifier = Modifier.animateItem(),
+                    onToggle = {
+                        scope.launch {
+                            AdbModuleManager.setEnabled(module, !module.enabled)
+                            reload()
+                        }
+                    },
+                    onRunAction = {
+                        if (ModuleSettings.recommandForAction()) {
+                            pendingCommand = ModuleCommandRequest(
+                                module = module,
+                                source = ModuleCommandSource.ACTION,
+                                command = module.actionCommandPreview()
+                            )
+                        } else {
+                            runModuleAction(module)
+                        }
+                    },
+                    onRunService = {
+                        scope.launch {
+                            runningModuleId = module.id
+                            output = runCatching {
+                                val result = AdbModuleManager.runService(module)
+                                context.getString(R.string.modules_service_result, result.exitCode) to result.combinedOutput
+                            }.getOrElse {
+                                context.getString(R.string.modules_service_failed) to (it.message ?: it.javaClass.simpleName)
+                            }
+                            runningModuleId = null
+                        }
+                    },
+                    onOpenWebUi = {
+                        onOpenWebUi(module.id)
+                    },
+                    onDelete = { deleteTarget = module },
+                    onTrustChange = { trusted ->
+                        scope.launch {
+                            ModuleSettings.setModuleTrusted(module.id, trusted)
+                            AdbModuleManager.setEnabled(module, trusted)
+                            reload()
+                        }
+                    },
+                    onUpdateModule = { updateModule(module) }
+                )
+            }
+        } else {
+            // Catalog Tab
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text(stringResource(R.string.modules_search_placeholder)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium
+                )
+            }
+
+            if (catalogLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+            } else {
+                val filtered = catalogModules.filter {
+                    searchQuery.isBlank() ||
+                            it.name.contains(searchQuery, ignoreCase = true) ||
+                            it.description.contains(searchQuery, ignoreCase = true) ||
+                            it.author.contains(searchQuery, ignoreCase = true) ||
+                            it.tags.any { tag -> tag.contains(searchQuery, ignoreCase = true) }
+                }
+
+                if (filtered.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.modules_catalog_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                } else {
+                    items(filtered, key = { it.id }) { item ->
+                        val isInstalled = modules.any { m -> m.id == item.id }
+                        CatalogModuleCard(
+                            item = item,
+                            isInstalled = isInstalled,
+                            busy = downloadingCatalogId == item.id,
+                            onDownloadToDownloads = {
+                                val filename = "${item.id}-v${item.version}.zip"
+                                CatalogModuleManager.downloadToDownloads(context, item.downloadUrl, filename)
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.modules_download_enqueued),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            onDownloadAndInstall = {
+                                installFromCatalog(item)
+                            },
+                            onOpenGitHub = {
+                                if (item.githubRepo.isNotBlank()) {
+                                    val repoUrl = if (item.githubRepo.startsWith("http")) item.githubRepo else "https://github.com/${item.githubRepo}"
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(repoUrl))
+                                    context.startActivity(intent)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -251,7 +480,9 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                     Spacer(modifier = Modifier.height(8.dp))
                     if (aiLoading) {
                         Box(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator()
@@ -407,6 +638,7 @@ private fun EmptyModulesCard(onInstall: () -> Unit) {
 private fun ModuleCard(
     module: AdbModule,
     busy: Boolean,
+    updating: Boolean,
     trusted: Boolean,
     modifier: Modifier = Modifier,
     onToggle: () -> Unit,
@@ -414,7 +646,8 @@ private fun ModuleCard(
     onRunService: () -> Unit,
     onOpenWebUi: () -> Unit,
     onDelete: () -> Unit,
-    onTrustChange: (Boolean) -> Unit
+    onTrustChange: (Boolean) -> Unit,
+    onUpdateModule: () -> Unit
 ) {
     var expanded by remember(module.id) { mutableStateOf(true) }
     var showTrustAction by remember(module.id, trusted) { mutableStateOf(false) }
@@ -451,6 +684,38 @@ private fun ModuleCard(
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                module.updateInfo?.let { updateInfo ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.modules_update_available, updateInfo.newVersion),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Button(
+                                onClick = onUpdateModule,
+                                enabled = !updating,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                if (updating) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text(stringResource(R.string.modules_update_button))
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -517,6 +782,135 @@ private fun ModuleCard(
 }
 
 @Composable
+private fun CatalogModuleCard(
+    item: CatalogModule,
+    isInstalled: Boolean,
+    busy: Boolean,
+    onDownloadToDownloads: () -> Unit,
+    onDownloadAndInstall: () -> Unit,
+    onOpenGitHub: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.extraLarge),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (item.isOfficial || item.tags.any { it.equals("OFFICIAL", ignoreCase = true) }) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = MaterialTheme.shapes.extraSmall
+                            ) {
+                                Text(
+                                    text = "OFFICIAL",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "v${item.version} • ${item.author}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (isInstalled) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("Installed") }
+                    )
+                }
+            }
+
+            Text(
+                text = item.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (item.tags.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    item.tags.forEach { tag ->
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(tag) }
+                        )
+                    }
+                }
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedButton(
+                    onClick = onDownloadToDownloads,
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    ShizukuIcon(
+                        R.drawable.ic_outline_file_download_24,
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(16.dp)
+                    )
+                    Text(stringResource(R.string.modules_download_downloads))
+                }
+
+                Button(
+                    onClick = onDownloadAndInstall,
+                    enabled = !busy,
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    if (busy) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text(if (isInstalled) stringResource(R.string.modules_update_button) else stringResource(R.string.modules_download_install))
+                    }
+                }
+
+                if (item.githubRepo.isNotBlank()) {
+                    TextButton(
+                        onClick = onOpenGitHub,
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text("GitHub")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ModuleChips(module: AdbModule, trusted: Boolean) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -529,6 +923,26 @@ private fun ModuleChips(module: AdbModule, trusted: Boolean) {
         AssistChip(onClick = {}, label = { Text(module.formattedSize) })
         if (trusted) {
             AssistChip(onClick = {}, label = { Text(stringResource(R.string.modules_full_trust)) })
+        }
+    }
+}
+
+@Composable
+private fun ModuleBanner(module: AdbModule) {
+    val bannerFile = module.banner
+    if (bannerFile != null && bannerFile.exists()) {
+        val bitmap = remember(bannerFile.lastModified()) {
+            BitmapFactory.decodeFile(bannerFile.absolutePath)
+        }
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(110.dp),
+                contentScale = ContentScale.Crop
+            )
         }
     }
 }
@@ -592,27 +1006,26 @@ private fun ModuleActions(
             label = R.string.modules_run_service,
             icon = R.drawable.ic_terminal_24,
             enabled = !busy &&
-                module.enabled &&
-                module.hasService &&
-                ModuleSettings.canRunService(module) &&
-                ModuleSettings.canRunBackground(module),
+                    module.enabled &&
+                    module.hasService &&
+                    ModuleSettings.canRunService(module) &&
+                    ModuleSettings.canRunBackground(module),
             onClick = onRunService
+        )
+        ModuleButton(
+            label = R.string.modules_delete,
+            icon = R.drawable.ic_delete_24,
+            enabled = !busy,
+            onClick = onDelete
         )
         if (showTrustAction) {
             ModuleButton(
                 label = if (trusted) R.string.modules_untrust else R.string.modules_trust,
-                icon = R.drawable.ic_warning_24,
+                icon = R.drawable.ic_outline_check_circle_24,
                 enabled = !busy,
                 onClick = { onTrustChange(!trusted) }
             )
         }
-        ModuleButton(
-            label = R.string.modules_delete,
-            icon = R.drawable.ic_close_24,
-            enabled = !busy,
-            danger = true,
-            onClick = onDelete
-        )
     }
 }
 
@@ -621,75 +1034,36 @@ private fun ModuleButton(
     @StringRes label: Int,
     @DrawableRes icon: Int,
     enabled: Boolean,
-    onClick: () -> Unit,
     primary: Boolean = false,
-    danger: Boolean = false
+    onClick: () -> Unit
 ) {
-    val modifier = Modifier.widthIn(min = 116.dp)
-    val content: @Composable RowScope.() -> Unit = {
-        ShizukuIcon(
-            icon,
-            modifier = Modifier
-                .padding(end = 8.dp)
-                .size(18.dp)
-        )
-        Text(stringResource(label))
-    }
-    when {
-        primary -> Button(
-            modifier = modifier,
-            enabled = enabled,
+    if (primary) {
+        Button(
             onClick = onClick,
-            content = content
-        )
-        danger -> OutlinedButton(
-            modifier = modifier,
             enabled = enabled,
+            contentPadding = ButtonDefaults.ButtonWithIconContentPadding
+        ) {
+            ShizukuIcon(
+                icon,
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .size(18.dp)
+            )
+            Text(stringResource(label))
+        }
+    } else {
+        OutlinedButton(
             onClick = onClick,
-            content = content
-        )
-        else -> FilledTonalButton(
-            modifier = modifier,
             enabled = enabled,
-            onClick = onClick,
-            content = content
-        )
+            contentPadding = ButtonDefaults.ButtonWithIconContentPadding
+        ) {
+            ShizukuIcon(
+                icon,
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .size(18.dp)
+            )
+            Text(stringResource(label))
+        }
     }
-}
-
-@Composable
-private fun ModuleBanner(module: AdbModule) {
-    val banner = module.banner ?: return
-    val bitmap = remember(banner.absolutePath, banner.lastModified()) {
-        runCatching { BitmapFactory.decodeFile(banner.absolutePath)?.asImageBitmap() }.getOrNull()
-    } ?: return
-
-    val overlayAlpha by animateColorAsState(
-        targetValue = if (module.enabled) {
-            androidx.compose.ui.graphics.Color.Transparent
-        } else {
-            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.48f)
-        },
-        animationSpec = tween(260),
-        label = "module-banner-disabled-overlay"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(116.dp)
-    ) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(overlayAlpha)
-        )
-    }
-    Spacer(Modifier.height(2.dp))
 }

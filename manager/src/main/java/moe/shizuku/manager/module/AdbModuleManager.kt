@@ -378,7 +378,9 @@ object AdbModuleManager {
             sizeBytes = directory.walkTopDown()
                 .filter { it.isFile }
                 .sumOf { it.length() },
-            enabled = !directory.resolve(DISABLE_FILE).exists()
+            enabled = !directory.resolve(DISABLE_FILE).exists(),
+            url = props["url"]?.takeIf { it.isNotBlank() } ?: props["github"]?.takeIf { it.isNotBlank() },
+            updateJson = props["updateJson"]?.takeIf { it.isNotBlank() }
         )
     }
 

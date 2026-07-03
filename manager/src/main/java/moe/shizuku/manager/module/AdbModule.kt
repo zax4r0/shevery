@@ -2,6 +2,13 @@ package moe.shizuku.manager.module
 
 import java.io.File
 
+data class ModuleUpdateInfo(
+    val newVersion: String,
+    val newVersionCode: Long? = null,
+    val zipUrl: String,
+    val changelog: String? = null
+)
+
 data class AdbModule(
     val id: String,
     val name: String,
@@ -17,7 +24,10 @@ data class AdbModule(
     val serviceScript: File?,
     val logsDir: File,
     val sizeBytes: Long,
-    val enabled: Boolean
+    val enabled: Boolean,
+    val url: String? = null,
+    val updateJson: String? = null,
+    val updateInfo: ModuleUpdateInfo? = null
 ) {
     val hasWebUi: Boolean
         get() = webRoot?.resolve("index.html")?.isFile == true

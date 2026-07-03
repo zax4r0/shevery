@@ -201,8 +201,21 @@ With %1$s, in any terminal app, you can connect to and interact with the shell r
     <string name="modules_ai_api_key_summary">Stored encrypted with Android Keystore.</string>
     <string name="modules_ai_unlocked">AI checker unlocked</string>
     <string name="modules_ai_hidden">AI checker hidden</string>
-    <string name="modules_ai_failed">AI check failed: %s</string>
-
+    <string name="modules_tab_installed">Installed</string>
+    <string name="modules_tab_catalog">Catalog</string>
+    <string name="modules_check_updates">Check updates</string>
+    <string name="modules_checking_updates">Checking for updates…</string>
+    <string name="modules_no_updates">All modules are up to date</string>
+    <string name="modules_update_available">Update available: v%s</string>
+    <string name="modules_update_button">Update</string>
+    <string name="modules_updating">Updating module…</string>
+    <string name="modules_update_success">Module updated to v%s</string>
+    <string name="modules_download_downloads">Download to Downloads</string>
+    <string name="modules_download_install">Download &amp; Install</string>
+    <string name="modules_downloading">Downloading…</string>
+    <string name="modules_download_enqueued">Download started in background</string>
+    <string name="modules_search_placeholder">Search catalog modules…</string>
+    <string name="modules_catalog_empty">No catalog modules match your search.</string>
 
     <!-- About -->
     <string name="action_about">About</string>

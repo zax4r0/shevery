@@ -123,6 +123,7 @@
             android:theme="@style/GrantPermissions">
             <intent-filter>
                 <action android:name="${applicationId}.intent.action.REQUEST_PERMISSION" />
+                <action android:name="moe.shizuku.privileged.api.intent.action.REQUEST_PERMISSION" />
 
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -147,6 +148,7 @@
             android:theme="@style/GrantPermissions">
             <intent-filter>
                 <action android:name="${applicationId}.intent.action.REQUEST_AUTHORIZATION" />
+                <action android:name="moe.shizuku.privileged.api.intent.action.REQUEST_AUTHORIZATION" />
 
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -195,12 +197,14 @@
             tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="rikka.shizuku.intent.action.REQUEST_BINDER" />
+                <action android:name="${applicationId}.intent.action.REQUEST_BINDER" />
+                <action android:name="moe.shizuku.privileged.api.intent.action.REQUEST_BINDER" />
             </intent-filter>
         </receiver>
 
         <provider
             android:name=".ShizukuManagerProvider"
-            android:authorities="${applicationId}.shizuku"
+            android:authorities="${applicationId}.shizuku;moe.shizuku.privileged.api.shizuku"
             android:directBootAware="true"
             android:enabled="true"
             android:exported="true"
@@ -209,7 +213,7 @@
 
         <provider
             android:name=".connector.ShizukuConnectorProvider"
-            android:authorities="${applicationId}.connector"
+            android:authorities="${applicationId}.connector;moe.shizuku.privileged.api.connector"
             android:exported="true" />
     </application>
 

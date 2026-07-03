@@ -16,6 +16,7 @@ class ShizukuManagerProvider : ShizukuProvider() {
 
     companion object {
         private const val EXTRA_BINDER = "moe.shizuku.privileged.api.intent.extra.BINDER"
+        private const val EXTRA_BINDER_SHEVERY = "com.hamondev.shevery.intent.extra.BINDER"
         private const val METHOD_SEND_USER_SERVICE = "sendUserService"
     }
 
@@ -32,7 +33,9 @@ class ShizukuManagerProvider : ShizukuProvider() {
                 extras.classLoader = BinderContainer::class.java.classLoader
 
                 val token = extras.getString(USER_SERVICE_ARG_TOKEN) ?: return null
-                val binder = extras.getParcelable<BinderContainer>(EXTRA_BINDER)?.binder ?: return null
+                val binder = extras.getParcelable<BinderContainer>(EXTRA_BINDER)?.binder
+                    ?: extras.getParcelable<BinderContainer>(EXTRA_BINDER_SHEVERY)?.binder
+                    ?: return null
 
                 val countDownLatch = CountDownLatch(1)
                 var reply: Bundle? = Bundle()
@@ -44,7 +47,9 @@ class ShizukuManagerProvider : ShizukuProvider() {
                             Shizuku.attachUserService(binder, bundleOf(
                                 USER_SERVICE_ARG_TOKEN to token
                             ))
-                            reply!!.putParcelable(EXTRA_BINDER, BinderContainer(Shizuku.getBinder()))
+                            val container = BinderContainer(Shizuku.getBinder())
+                            reply!!.putParcelable(EXTRA_BINDER, container)
+                            reply!!.putParcelable(EXTRA_BINDER_SHEVERY, container)
                         } catch (e: Throwable) {
                             LOGGER.e(e, "attachUserService $token")
                             reply = null

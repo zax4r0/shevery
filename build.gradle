@@ -34,10 +34,10 @@ try {
     if (!commit.isEmpty()) gitCommitId = commit
 } catch (Exception ignored) {}
 
-def gitCommitCount = 25
+def gitCommitCount = 26
 
 def baseVersionName = "${api_version_name}"
 ext {
     versionCode = gitCommitCount
-    versionName = "13.8.0 r25"
+    versionName = "${baseVersionName}.r${gitCommitCount}.${gitCommitId}"
 }
