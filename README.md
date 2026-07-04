@@ -3,7 +3,7 @@
 ## Fork status
 
 > [!IMPORTANT]
-> **Migration Action Required:** Due to the App Signation, you **MUST UNINSTALL** any older official Shizuku Manager app from your device before installing Shevery. Otherwise, they will conflict.
+> **Migration Action Required:** Due to the App Signation (moe.shizuku.privileged.api->**com.hamondev.shevery**), you **MUST UNINSTALL** any older official Shizuku Manager app from your device before installing Shevery. Otherwise, they will conflict.
 Upstream project reference: <https://github.com/RikkaApps/Shizuku>
 > 
 
