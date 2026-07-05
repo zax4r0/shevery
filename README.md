@@ -25,6 +25,7 @@ Upstream project reference: <https://github.com/RikkaApps/Shizuku>
 - [ADB Modules API reference](docs/adb-modules-api.md)
 - [Shizuku Connectors API](docs/shizuku-connectors.md)
 - [Android 17 Compatibility](docs/android-17-compatibility.md)
+- [ADB Modules publishing guide](docs/github-catalog.md)
 
 ## Background
 
