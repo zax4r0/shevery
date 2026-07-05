@@ -98,6 +98,7 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableStateOf(0) } // 0: Installed, 1: Catalog
+    var showCatalog by remember { mutableStateOf(false) }
     var modules by remember { mutableStateOf<List<AdbModule>>(emptyList(), neverEqualPolicy()) }
     var catalogModules by remember { mutableStateOf<List<CatalogModule>>(emptyList(), neverEqualPolicy()) }
     var catalogLoading by remember { mutableStateOf(false) }
@@ -233,8 +234,16 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
         modules = AdbModuleManager.listModules(context)
     }
 
-    ShizukuLazyScaffold(
-        title = stringResource(R.string.modules_title),
+    if (showCatalog) {
+        moe.shizuku.manager.module.catalog.CatalogScreen(
+            onNavigateUp = {
+                showCatalog = false
+                reload()
+            }
+        )
+    } else {
+        ShizukuLazyScaffold(
+            title = stringResource(R.string.modules_title),
         onNavigateUp = null,
         actions = {
             if (selectedTab == 0) {
@@ -305,16 +314,9 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                     text = { Text(stringResource(R.string.modules_tab_installed)) }
                 )
                 Tab(
-                    selected = selectedTab == 1,
+                    selected = false,
                     onClick = {
-                        selectedTab = 1
-                        if (catalogModules.isEmpty()) {
-                            scope.launch {
-                                catalogLoading = true
-                                catalogModules = CatalogModuleManager.loadCatalog()
-                                catalogLoading = false
-                            }
-                        }
+                        showCatalog = true
                     },
                     text = { Text(stringResource(R.string.modules_tab_catalog)) }
                 )
@@ -379,82 +381,9 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                     onUpdateModule = { updateModule(module) }
                 )
             }
-        } else {
-            // Catalog Tab
-            item {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text(stringResource(R.string.modules_search_placeholder)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-            }
-
-            if (catalogLoading) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-            } else {
-                val filtered = catalogModules.filter {
-                    searchQuery.isBlank() ||
-                            it.name.contains(searchQuery, ignoreCase = true) ||
-                            it.description.contains(searchQuery, ignoreCase = true) ||
-                            it.author.contains(searchQuery, ignoreCase = true) ||
-                            it.tags.any { tag -> tag.contains(searchQuery, ignoreCase = true) }
-                }
-
-                if (filtered.isEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.modules_catalog_empty),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                } else {
-                    items(filtered, key = { it.id }) { item ->
-                        val isInstalled = modules.any { m -> m.id == item.id }
-                        CatalogModuleCard(
-                            item = item,
-                            isInstalled = isInstalled,
-                            busy = downloadingCatalogId == item.id,
-                            onDownloadToDownloads = {
-                                val filename = "${item.id}-v${item.version}.zip"
-                                CatalogModuleManager.downloadToDownloads(context, item.downloadUrl, filename)
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.modules_download_enqueued),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            onDownloadAndInstall = {
-                                installFromCatalog(item)
-                            },
-                            onOpenGitHub = {
-                                if (item.githubRepo.isNotBlank()) {
-                                    val repoUrl = if (item.githubRepo.startsWith("http")) item.githubRepo else "https://github.com/${item.githubRepo}"
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(repoUrl))
-                                    context.startActivity(intent)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
         }
     }
+}
 
     output?.let { (title, text) ->
         AlertDialog(

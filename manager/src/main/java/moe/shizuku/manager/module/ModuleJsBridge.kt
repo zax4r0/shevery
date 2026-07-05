@@ -31,10 +31,11 @@ class ModuleJsBridge(
             return false
         }
         val currentUrl = url ?: return false
-        if (!currentUrl.startsWith("file://", ignoreCase = true)) {
+        val uri = android.net.Uri.parse(currentUrl)
+        if (uri.scheme?.lowercase() != "file") {
             return false
         }
-        val cleanUrl = currentUrl.substring(7).split("?")[0].split("#")[0]
+        val cleanUrl = uri.path ?: return false
         val root = module.webRoot ?: return false
         return try {
             val rootPath = root.canonicalPath
@@ -163,7 +164,7 @@ class ModuleJsBridge(
             val remote = service.newProcess(
                 arrayOf("sh", "-c", command),
                 env,
-                cwd.absolutePath
+                "/data/local/tmp"
             )
 
             val stdoutPfd = remote.getInputStream()
@@ -366,7 +367,7 @@ class ModuleJsBridge(
                 require(code in 200..299) { "HTTP $code while downloading $current" }
                 val parent = outFile.parentFile ?: error("Destination has no parent directory.")
                 parent.mkdirs()
-                val tmp = File(parent, "${outFile.name}.download")
+                val tmp = File.createTempFile("download-", ".tmp", parent)
                 var total = 0L
                 try {
                     BufferedInputStream(connection.inputStream).use { input ->

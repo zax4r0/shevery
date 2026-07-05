@@ -215,7 +215,6 @@
     <string name="modules_downloading">Загрузка…</string>
     <string name="modules_download_enqueued">Загрузка запущена в фоновом режиме</string>
     <string name="modules_search_placeholder">Поиск по каталогу модулей…</string>
-    <string name="modules_catalog_empty">Модули не найдены по запросу.</string>
 
 
     <string name="adb_pairing_tutorial_content_left_is_clickable">Обратите внимание, что левая часть опции \"Беспроводная отладка\" является кликабельной, нажатие на нее открывает новую страницу. Нажатие только на переключатель (справа) является неправильным.</string>
@@ -268,4 +267,54 @@
     <string name="notification_control_text_stopped">Нажмите, чтобы открыть Shevery, или используйте кнопки ниже для запуска.</string>
     <string name="notification_control_action_start">Запустить</string>
     <string name="notification_control_action_stop">Остановить</string>
+    <!-- Update Settings -->
+    <string name="update_settings_title">Настройки обновлений</string>
+    <string name="update_settings_catalog">Каталог модулей</string>
+    <string name="update_settings_catalog_enabled">Включить каталог</string>
+    <string name="update_settings_catalog_enabled_summary">Показывать обнаруженные модули из GitHub Topics</string>
+    <string name="update_settings_frequency">Частота обновлений</string>
+    <string name="update_settings_frequency_label">Проверять обновления</string>
+    <string name="update_settings_frequency_manual">Вручную</string>
+    <string name="update_settings_frequency_daily">Ежедневно</string>
+    <string name="update_settings_frequency_weekly">Еженедельно</string>
+    <string name="update_settings_install_mode">Режим установки</string>
+    <string name="update_settings_install_mode_label">Метод установки по умолчанию</string>
+    <string name="update_settings_install_mode_sources">Собрать из исходников</string>
+    <string name="update_settings_install_mode_release">Скачать ZIP-релиз</string>
+    <string name="update_settings_github">GitHub</string>
+    <string name="update_settings_github_pat">Персональный токен доступа</string>
+    <string name="update_settings_github_pat_set">Токен установлен</string>
+    <string name="update_settings_github_pat_unset">Не установлен (60 запросов/час)</string>
+    <string name="update_settings_github_pat_title">GitHub Personal Access Token</string>
+    <string name="update_settings_github_pat_description">Необязательно. GitHub PAT увеличивает лимит API с 60 до 5000 запросов/час. Нужен только scope public_repo для публичных репозиториев.</string>
+    <string name="update_settings_github_pat_label">Токен</string>
+    <string name="update_settings_github_pat_show">Показать</string>
+    <string name="update_settings_github_pat_hide">Скрыть</string>
+    <string name="update_settings_github_pat_clear">Очистить</string>
+    <string name="update_settings_github_pat_delete">Удалить токен</string>
+    <string name="update_settings_github_pat_delete_summary">Удалить сохранённый токен GitHub</string>
+
+    <!-- Module Catalog -->
+    <string name="modules_catalog">Каталог</string>
+    <string name="modules_catalog_title">Каталог модулей</string>
+    <string name="modules_catalog_empty">Модули не найдены</string>
+    <string name="modules_catalog_sort_newest">Новые</string>
+    <string name="modules_catalog_sort_oldest">Старые</string>
+    <string name="modules_catalog_sort_stars">По звёздам</string>
+    <string name="modules_catalog_sort_official">Официальные</string>
+    <string name="modules_catalog_install_sources">Установить из исходников</string>
+    <string name="modules_catalog_install_release">Скачать ZIP-релиз</string>
+    <string name="modules_catalog_install_description">Выберите способ установки этого модуля:</string>
+    <string name="modules_catalog_install_success">Модуль успешно установлен</string>
+    <string name="modules_catalog_install_failed">Ошибка установки: %s</string>
+    <string name="modules_catalog_token_required">Требуется токен GitHub</string>
+    <string name="modules_catalog_token_hint">GitHub Personal Access Token</string>
+    <string name="modules_catalog_token_description">Токен нужен для поиска модулей на GitHub. Создать его можно на github.com/settings/tokens</string>
+    <string name="modules_catalog_loading">Загрузка каталога…</string>
+    <string name="modules_catalog_error">Не удалось загрузить каталог</string>
+    <string name="modules_catalog_install">Установить</string>
+    <string name="modules_catalog_installing">Установка…</string>
+    <string name="modules_catalog_view_github">Открыть на GitHub</string>
+    <string name="modules_catalog_skip_token">Пропустить</string>
+    <string name="modules_catalog_open">Открыть каталог</string>
 </resources>

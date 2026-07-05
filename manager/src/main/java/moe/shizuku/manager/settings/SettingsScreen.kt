@@ -126,6 +126,7 @@ fun SettingsScreen() {
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showGeminiModelDialog by remember { mutableStateOf(false) }
     var recreateTick by remember { mutableIntStateOf(0) }
+    var showUpdateSettings by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val backupLauncher = rememberLauncherForActivityResult(
@@ -200,10 +201,15 @@ fun SettingsScreen() {
         }
     }
 
-    ShizukuLazyScaffold(
-        title = stringResource(R.string.settings_title),
-        onNavigateUp = null
-    ) {
+    if (showUpdateSettings) {
+        moe.shizuku.manager.module.update.UpdateSettingsScreen(
+            onNavigateUp = { showUpdateSettings = false }
+        )
+    } else {
+        ShizukuLazyScaffold(
+            title = stringResource(R.string.settings_title),
+            onNavigateUp = null
+        ) {
         item {
             SettingsGroup(title = stringResource(R.string.settings_startup)) {
                 SwitchSettingsRow(
@@ -367,6 +373,13 @@ fun SettingsScreen() {
                         recommandAction = enabled
                     }
                 )
+                GroupDivider()
+                SettingsRow(
+                    icon = R.drawable.ic_settings_outline_24dp,
+                    title = stringResource(R.string.update_settings_title),
+                    summary = stringResource(R.string.update_settings_catalog_enabled_summary),
+                    onClick = { showUpdateSettings = true }
+                )
             }
         }
 
@@ -421,6 +434,7 @@ fun SettingsScreen() {
             }
         }
     }
+}
 
     if (showLanguageDialog) {
         ChoiceDialog(

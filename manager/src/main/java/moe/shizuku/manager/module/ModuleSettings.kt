@@ -17,6 +17,9 @@ object ModuleSettings {
     private const val KEY_ACCESS_MODE = "adb_modules_access_mode"
     private const val KEY_ALLOW_BACKGROUND_ACTIONS = "adb_modules_allow_background_actions"
     private const val KEY_CUSTOM_ACTION = "adb_modules_custom_action"
+    private const val KEY_UPDATE_FREQUENCY = "adb_modules_update_frequency"
+    private const val KEY_INSTALL_MODE = "adb_modules_install_mode"
+    private const val KEY_CATALOG_ENABLED = "adb_modules_catalog_enabled"
     private const val KEY_CUSTOM_SERVICE = "adb_modules_custom_service"
     private const val KEY_CUSTOM_WEB_BRIDGE = "adb_modules_custom_web_bridge"
     private const val KEY_CUSTOM_WEB_NETWORK = "adb_modules_custom_web_network"
@@ -367,5 +370,56 @@ object ModuleSettings {
 
     fun setComputMacros(value: String) {
         ShizukuSettings.getPreferences().edit().putString(KEY_COMPUT_MACROS, value).apply()
+    }
+
+    enum class UpdateFrequency(val value: String) {
+        MANUAL("manual"),
+        DAILY("daily"),
+        WEEKLY("weekly");
+
+        companion object {
+            fun fromValue(value: String?): UpdateFrequency {
+                return entries.firstOrNull { it.value == value } ?: MANUAL
+            }
+        }
+    }
+
+    enum class InstallMode(val value: String) {
+        SOURCES("sources"),
+        RELEASE("release");
+
+        companion object {
+            fun fromValue(value: String?): InstallMode {
+                return entries.firstOrNull { it.value == value } ?: SOURCES
+            }
+        }
+    }
+
+    fun getUpdateFrequency(): UpdateFrequency {
+        return UpdateFrequency.fromValue(
+            ShizukuSettings.getPreferences().getString(KEY_UPDATE_FREQUENCY, UpdateFrequency.MANUAL.value)
+        )
+    }
+
+    fun setUpdateFrequency(freq: UpdateFrequency) {
+        ShizukuSettings.getPreferences().edit().putString(KEY_UPDATE_FREQUENCY, freq.value).apply()
+    }
+
+    fun getInstallMode(): InstallMode {
+        return InstallMode.fromValue(
+            ShizukuSettings.getPreferences().getString(KEY_INSTALL_MODE, InstallMode.SOURCES.value)
+        )
+    }
+
+    fun setInstallMode(mode: InstallMode) {
+        ShizukuSettings.getPreferences().edit().putString(KEY_INSTALL_MODE, mode.value).apply()
+    }
+
+    fun isCatalogEnabled(): Boolean {
+        return ShizukuSettings.getPreferences().getBoolean(KEY_CATALOG_ENABLED, true)
+    }
+
+    fun setCatalogEnabled(enabled: Boolean) {
+        ShizukuSettings.getPreferences().edit().putBoolean(KEY_CATALOG_ENABLED, enabled).apply()
     }
 }
