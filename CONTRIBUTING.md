@@ -1,6 +1,6 @@
 # Contributing Guidelines
 
-Thank you for contributing to the Shizuku-modern repository. Please follow these guidelines to ensure a smooth review process.
+Thank you for contributing to the Shevery repository. Please follow these guidelines to ensure a smooth review process.
 
 ## Issue Reporting
 - **Use Templates:** Use the provided GitHub Issue templates and fill them out completely.
