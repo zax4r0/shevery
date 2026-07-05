@@ -81,11 +81,35 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import moe.shizuku.manager.R
+import moe.shizuku.manager.module.update.UpdateChecker
 import moe.shizuku.manager.ui.compose.ExpressiveSwitch
 import moe.shizuku.manager.ui.compose.MonospaceLog
 import moe.shizuku.manager.ui.compose.ShizukuIcon
 import moe.shizuku.manager.ui.compose.ShizukuLazyScaffold
 import moe.shizuku.manager.utils.AiExplainUtil
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
+
+private suspend fun downloadAndInstallFromUrl(context: android.content.Context, url: String, filename: String): moe.shizuku.manager.module.AdbModule {
+    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        val request = Request.Builder().url(url).build()
+        val response = client.newCall(request).execute()
+        response.use { resp ->
+            if (!resp.isSuccessful) throw Exception("Download failed: ${resp.code}")
+            val cacheDir = java.io.File(context.cacheDir, "module_zips").apply { mkdirs() }
+            val zipFile = java.io.File(cacheDir, filename)
+            resp.body?.byteStream()?.use { input ->
+                zipFile.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw Exception("Empty response body")
+            AdbModuleManager.install(context, android.net.Uri.fromFile(zipFile))
+        }
+    }
+}
 
 private val MODULE_MIME_TYPES = arrayOf(
     "application/zip",
@@ -100,12 +124,8 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } // 0: Installed, 1: Catalog
     var showCatalog by remember { mutableStateOf(false) }
     var modules by remember { mutableStateOf<List<AdbModule>>(emptyList(), neverEqualPolicy()) }
-    var catalogModules by remember { mutableStateOf<List<CatalogModule>>(emptyList(), neverEqualPolicy()) }
-    var catalogLoading by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
     var checkingUpdates by remember { mutableStateOf(false) }
     var updatingModuleId by remember { mutableStateOf<String?>(null) }
-    var downloadingCatalogId by remember { mutableStateOf<String?>(null) }
     var output by remember { mutableStateOf<Pair<String, String>?>(null) }
     var deleteTarget by remember { mutableStateOf<AdbModule?>(null) }
     var pendingCommand by remember { mutableStateOf<ModuleCommandRequest?>(null) }
@@ -124,10 +144,19 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
         scope.launch {
             checkingUpdates = true
             Toast.makeText(context, context.getString(R.string.modules_checking_updates), Toast.LENGTH_SHORT).show()
+            val checker = UpdateChecker.getInstance()
             var foundUpdates = 0
             val updated = modules.map { m ->
-                val info = CatalogModuleManager.checkModuleUpdate(m)
-                if (info != null) foundUpdates++
+                val result = checker.checkUpdate(m)
+                val info = if (result.hasUpdate && result.downloadUrl != null && result.latestVersion != null) {
+                    foundUpdates++
+                    ModuleUpdateInfo(
+                        newVersion = result.latestVersion,
+                        newVersionCode = result.latestVersionCode,
+                        zipUrl = result.downloadUrl,
+                        changelog = result.changelog
+                    )
+                } else null
                 m.copy(updateInfo = info)
             }
             modules = updated
@@ -147,8 +176,7 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
             updatingModuleId = module.id
             Toast.makeText(context, context.getString(R.string.modules_updating), Toast.LENGTH_SHORT).show()
             runCatching {
-                val filename = "${module.id}-update-${info.newVersion}.zip"
-                CatalogModuleManager.downloadAndInstall(context, info.zipUrl, filename)
+                downloadAndInstallFromUrl(context, info.zipUrl, "${module.id}-update-${info.newVersion}.zip")
             }.onSuccess {
                 Toast.makeText(
                     context,
@@ -167,30 +195,7 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
         }
     }
 
-    fun installFromCatalog(item: CatalogModule) {
-        scope.launch {
-            downloadingCatalogId = item.id
-            Toast.makeText(context, context.getString(R.string.modules_downloading), Toast.LENGTH_SHORT).show()
-            runCatching {
-                val filename = "${item.id}-v${item.version}.zip"
-                CatalogModuleManager.downloadAndInstall(context, item.downloadUrl, filename)
-            }.onSuccess { m ->
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.modules_install_success, m.name),
-                    Toast.LENGTH_SHORT
-                ).show()
-                reload()
-            }.onFailure {
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.modules_install_failed, it.message ?: it.javaClass.simpleName),
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-            downloadingCatalogId = null
-        }
-    }
+
 
     fun runModuleAction(module: AdbModule) {
         lastRunModule = module
@@ -280,21 +285,6 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                             .size(16.dp)
                     )
                     Text(stringResource(R.string.modules_install_zip))
-                }
-            } else {
-                OutlinedButton(
-                    modifier = Modifier.height(36.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    onClick = {
-                        scope.launch {
-                            catalogLoading = true
-                            catalogModules = CatalogModuleManager.loadCatalog()
-                            catalogLoading = false
-                        }
-                    },
-                    enabled = !catalogLoading
-                ) {
-                    Text(stringResource(R.string.modules_tab_catalog))
                 }
             }
         }
@@ -710,134 +700,7 @@ private fun ModuleCard(
     }
 }
 
-@Composable
-private fun CatalogModuleCard(
-    item: CatalogModule,
-    isInstalled: Boolean,
-    busy: Boolean,
-    onDownloadToDownloads: () -> Unit,
-    onDownloadAndInstall: () -> Unit,
-    onOpenGitHub: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 1.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = item.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (item.isOfficial || item.tags.any { it.equals("OFFICIAL", ignoreCase = true) }) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primary,
-                                shape = MaterialTheme.shapes.extraSmall
-                            ) {
-                                Text(
-                                    text = "OFFICIAL",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        text = "v${item.version} • ${item.author}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (isInstalled) {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text("Installed") }
-                    )
-                }
-            }
 
-            Text(
-                text = item.description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (item.tags.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    item.tags.forEach { tag ->
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(tag) }
-                        )
-                    }
-                }
-            }
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedButton(
-                    onClick = onDownloadToDownloads,
-                    modifier = Modifier.height(36.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    ShizukuIcon(
-                        R.drawable.ic_outline_file_download_24,
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .size(16.dp)
-                    )
-                    Text(stringResource(R.string.modules_download_downloads))
-                }
-
-                Button(
-                    onClick = onDownloadAndInstall,
-                    enabled = !busy,
-                    modifier = Modifier.height(36.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    if (busy) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text(if (isInstalled) stringResource(R.string.modules_update_button) else stringResource(R.string.modules_download_install))
-                    }
-                }
-
-                if (item.githubRepo.isNotBlank()) {
-                    TextButton(
-                        onClick = onOpenGitHub,
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Text("GitHub")
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun ModuleChips(module: AdbModule, trusted: Boolean) {
