@@ -3,7 +3,7 @@
 ## Fork status
 
 > [!IMPORTANT]
-> **Migration Action Required:** Due to the App Signation (moe.shizuku.privileged.api->**com.hamondev.shevery**), you **MUST UNINSTALL** any older official Shizuku Manager app from your device before installing Shevery. Otherwise, they will conflict.
+> **Migration Action Required:** Due to the App Signation (moe.shizuku.privileged.api -> **com.hamondev.shevery**), you **MUST UNINSTALL** any older official Shizuku Manager app from your device before installing Shevery. Otherwise, they will conflict.
 Upstream project reference: <https://github.com/RikkaApps/Shizuku>
 > 
 
@@ -11,12 +11,12 @@ Upstream project reference: <https://github.com/RikkaApps/Shizuku>
 
 - Jetpack Compose manager UI with Material 3 Expressive components, motion, switches, and rounded icon treatment.
 - **Dhizuku Experimental Support**: Dedicated Device-Owner bridging system available inside Laboratory features.
-- **Better shell/adb based "Comput"** feature with Gemini Explaination.
-- Android 16/17 target work with current preview SDK/build tooling in this fork.
+- **Better shell/adb based "Comput"** feature with Gemini Explaination, Macros and Commandium AI Command create.
+- Android 16/17 target work with current SDK/build tooling in this fork.
 - ADB Modules screen for installing and managing ZIP modules.
 - Module features: `module.prop`, banner, enable/disable switch, `action.sh`, policy-gated `service.sh`, local WebUI, delete, path checks, size limits, output limits, and last-run logs.
 - Module policy settings: Safe mode, Full access, and background action control.
-- Debug test module under `test-modules/adb-test-module.zip`.
+- Module Catalog with direct install.
 
 ## Documentation
 
@@ -61,7 +61,7 @@ Shizuku uses a completely different way. See detailed description below.
   </table>
 </details>
 
-## How does Shizuku work?
+## How does Shevery works?
 
 First, we need to talk about how app use system APIs. For example, if the app wants to get installed apps, we all know we should use `PackageManager#getInstalledPackages()`. This is actually an interprocess communication (IPC) process of the app process and system server process, just the Android framework did the inner works for us.
 
@@ -71,7 +71,7 @@ Usually, if there is a "manager" (e.g., `PackageManager`) for apps to use, there
 
 Shizuku guides users to run a process, Shizuku server, with root or ADB first. When the app starts, the `binder` to Shizuku server will also be sent to the app.
 
-The most important feature Shizuku provides is something like be a middle man to receive requests from the app, sent them to the system server, and send back the results. You can see the `transactRemote` method in `rikka.shizuku.server.ShizukuService` class, and `moe.shizuku.api.ShizukuBinderWrapper` class for the detail.
+The most important feature Shevery provides is something like be a middle man to receive requests from the app, sent them to the system server, and send back the results. You can see the `transactRemote` method in `rikka.shizuku.server.ShizukuService` class, and `moe.shizuku.api.ShizukuBinderWrapper` class for the detail.
 
 So, we reached our goal, to use system APIs with higher permission. And to the app, it is almost identical to the use of system APIs directly.
 
@@ -126,9 +126,9 @@ Under Apache 2.0 section 6, specifically:
 
 * You are **FORBIDDEN** to use `manager/src/main/res/mipmap*/ic_launcher*.png` image files, unless for displaying Shizuku itself.
 
-* You are **FORBIDDEN** to use `Shizuku` as app name or use `moe.shizuku.privileged.api` as application id or declare `moe.shizuku.manager.permission.*` permission.
+* You are **FORBIDDEN** to use `Shevery` as app name or use `moe.shizuku.privileged.api` and `com.hamondev.shevery` as application id or declare `moe.shizuku.manager.permission.*` permission.
 
 ## Credits
 
-* [Nightzuku](https://github.com/kerneldroid/Nightzuku) - for parts of App UI and Android 17 support.
+* [Nightzuku](https://github.com/kerneldroid/Nightzuku) - for parts of App UI, Catalog Modules System and Android 17 support.
 * [Shizuku](https://github.com/rikkaapps/Shizuku) - for Shizuku API and main sources.
