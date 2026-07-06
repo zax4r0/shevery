@@ -166,12 +166,4 @@ logs/service-last.log
 
 Each log includes module id, script name, exit code, access mode, stdout, and stderr.
 
-## Test Module
-
-The repository includes:
-
-```text
-test-modules/adb-test-module.zip
-```
-
 Use it to verify install, enable/disable, Action, Service, WebUI, and banner rendering.
