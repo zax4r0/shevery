@@ -16,6 +16,7 @@ import moe.shizuku.starter.util.IContentProviderCompat;
 import rikka.hidden.compat.ActivityManagerApis;
 import rikka.shizuku.ShizukuApiConstants;
 import rikka.shizuku.server.UserService;
+import rikka.shizuku.starter.BuildConfig;
 
 public class ServiceStarter {
 
@@ -92,7 +93,7 @@ public class ServiceStarter {
     }
 
     private static boolean sendBinder(IBinder binder, String token, boolean retry) {
-        String packageName = "com.hamondev.shevery";
+        String packageName = BuildConfig.MANAGER_APPLICATION_ID;
         String name = packageName + ".shizuku";
         int userId = 0;
         IContentProvider provider = null;

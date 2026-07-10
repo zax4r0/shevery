@@ -16,7 +16,7 @@ class ShizukuManagerProvider : ShizukuProvider() {
 
     companion object {
         private const val EXTRA_BINDER = "moe.shizuku.privileged.api.intent.extra.BINDER"
-        private const val EXTRA_BINDER_SHEVERY = "com.hamondev.shevery.intent.extra.BINDER"
+        private val EXTRA_BINDER_SHEVERY = "${BuildConfig.APPLICATION_ID}.intent.extra.BINDER"
         private const val METHOD_SEND_USER_SERVICE = "sendUserService"
     }
 
