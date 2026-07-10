@@ -6,7 +6,10 @@ plugins {
 android {
     namespace 'moe.shizuku.server'
     buildFeatures {
-        buildConfig = false
+        buildConfig = true
+    }
+    defaultConfig {
+        buildConfigField "String", "MANAGER_APPLICATION_ID", "\"${findProperty('shevery.applicationId') ?: 'com.hamondev.shevery'}\""
     }
 }
 

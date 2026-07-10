@@ -11,12 +11,13 @@ plugins {
 android {
     namespace 'moe.shizuku.manager'
     defaultConfig {
-        applicationId "com.hamondev.shevery"
+        def appId = findProperty("shevery.applicationId") ?: "com.hamondev.shevery"
+        applicationId appId
         versionCode rootProject.ext.versionCode
         versionName rootProject.ext.versionName
         externalNativeBuild {
             cmake {
-                arguments '-DANDROID_STL=none'
+                arguments '-DANDROID_STL=none', "-DPACKAGE_NAME=${appId}"
             }
         }
     }
