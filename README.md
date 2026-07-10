@@ -17,6 +17,7 @@ Upstream project reference: <https://github.com/RikkaApps/Shizuku>
 - Module features: `module.prop`, banner, enable/disable switch, `action.sh`, policy-gated `service.sh`, local WebUI, delete, path checks, size limits, output limits, and last-run logs.
 - Module policy settings: Safe mode, Full access, and background action control.
 - Module Catalog with direct install.
+- **Dynamic Application ID (Bypass Detection)**: Configurable `shevery.applicationId` in `gradle.properties` to compile the app under custom package names, preventing security detection by banking applications (such as ICICI Mobile, Yes Bank, etc.) that scan for default package names.
 
 ## Documentation
 
