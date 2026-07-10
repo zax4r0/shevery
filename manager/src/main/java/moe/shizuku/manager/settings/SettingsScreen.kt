@@ -4,6 +4,7 @@ package moe.shizuku.manager.settings
 
 import android.app.Activity
 import android.content.ComponentName
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Build
 import android.text.TextUtils
@@ -75,6 +76,12 @@ fun SettingsScreen() {
     val componentName = ComponentName(context.packageName, BootCompleteReceiver::class.java.name)
 
     val prefs = ShizukuSettings.getPreferences()
+
+    var isLauncherHidden by remember {
+        val launcherComponent = ComponentName(context.packageName, "${context.packageName}.LauncherActivity")
+        val state = packageManager.getComponentEnabledSetting(launcherComponent)
+        mutableStateOf(state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED)
+    }
 
     var startOnBoot by remember {
         mutableStateOf(packageManager.isComponentEnabled(componentName))
@@ -319,6 +326,31 @@ fun SettingsScreen() {
                     title = stringResource(R.string.lab_features_title),
                     summary = stringResource(R.string.lab_features_summary),
                     onClick = { context.startActivity(Intent(context, LabFeaturesActivity::class.java)) }
+                )
+            }
+        }
+
+        item {
+            SettingsGroup(title = "Stealth Settings") {
+                SwitchSettingsRow(
+                    icon = R.drawable.ic_settings_outline_24dp,
+                    title = "Hide Launcher Icon",
+                    summary = "Remove application icon from app drawer. Requires using Quick Settings tile to launch.",
+                    checked = isLauncherHidden,
+                    onCheckedChange = { hidden ->
+                        val launcherComponent = ComponentName(context.packageName, "${context.packageName}.LauncherActivity")
+                        val state = if (hidden) {
+                            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                        } else {
+                            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                        }
+                        packageManager.setComponentEnabledSetting(
+                            launcherComponent,
+                            state,
+                            PackageManager.DONT_KILL_APP
+                        )
+                        isLauncherHidden = hidden
+                    }
                 )
             }
         }
