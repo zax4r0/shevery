@@ -29,7 +29,9 @@ object AiExplainUtil {
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
 
-            val prompt = "An error or failure occurred in the application context: $contextStr.\n" +
+            val currentLocale = java.util.Locale.getDefault()
+            val prompt = "CRITICAL: You must write the entire explanation in the following language: ${currentLocale.displayName} (locale code: ${currentLocale.toLanguageTag()}).\n\n" +
+                    "An error or failure occurred in the application context: $contextStr.\n" +
                     "Input / Action details:\n$inputDetail\n\n" +
                     "Output / Error Log:\n$outputLog\n\n" +
                     "Explain this failure in a clear, concise, and helpful developer-focused way, and suggest how to resolve it."
