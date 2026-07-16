@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import moe.shizuku.manager.R
 import moe.shizuku.manager.app.AppActivity
 import moe.shizuku.manager.module.ModuleSettings
+import moe.shizuku.manager.service.WatchdogManager
 import moe.shizuku.manager.ui.compose.GroupDivider
 import moe.shizuku.manager.ui.compose.SettingsGroup
 import moe.shizuku.manager.ui.compose.ShizukuExpressiveTheme
@@ -82,6 +83,7 @@ class LabFeaturesActivity : AppActivity() {
                                 onCheckedChange = { value ->
                                     keepAlive = value
                                     ModuleSettings.setKeepAlive(value)
+                                    WatchdogManager.reconcileService(this@LabFeaturesActivity)
                                 }
                             )
                             GroupDivider()
@@ -93,6 +95,7 @@ class LabFeaturesActivity : AppActivity() {
                                 onCheckedChange = { value ->
                                     autoRestart = value
                                     ModuleSettings.setAutoRestartOnCrash(value)
+                                    WatchdogManager.reconcileService(this@LabFeaturesActivity)
                                 }
                             )
                             GroupDivider()
