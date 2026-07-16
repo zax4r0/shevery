@@ -317,4 +317,30 @@
     <string name="modules_catalog_view_github">Открыть на GitHub</string>
     <string name="modules_catalog_skip_token">Пропустить</string>
     <string name="modules_catalog_open">Открыть каталог</string>
+
+    <string name="app_name">Shevery</string>
+    <string name="home_local_network_title">Доступ к локальной сети</string>
+    <string name="home_local_network_description">Для беспроводной отладки требуется %1$s на этой версии Android.</string>
+    <string name="home_local_network_granted">%1$s предоставлено.</string>
+    <string name="home_local_network_missing">%1$s не предоставлено.</string>
+    <string name="home_local_network_grant">Предоставить доступ</string>
+    <string name="home_local_network_permission_denied">Для беспроводной отладки требуется доступ к локальной сети.</string>
+    <string name="home_refresh">Обновить</string>
+    <string name="home_diagnostics_title">Диагностика</string>
+    <string name="home_diagnostics_copy">Скопировать диагностику</string>
+    <string name="home_diagnostics_copied">Данные диагностики скопированы.</string>
+    <string name="permission_group_label">Shevery</string>
+    <string name="permission_group_description">@string/permission_label</string>
+    <string name="starting_root_shell">Запуск root-оболочки…</string>
+    <string name="home_dhizuku_title">Запуск (через Dhizuku)</string>
+    <string name="home_dhizuku_description">Для устройств под управлением Dhizuku вы можете запустить Shevery напрямую, используя привилегии владельца устройства.</string>
+    <string name="modules_catalog_token_format_warning">Токен должен начинаться с ghp_ или github_pat_ и состоять как минимум из 30 символов</string>
+    <string name="tv_status_active">АКТИВНО</string>
+    <string name="tv_status_disabled">ОТКЛЮЧЕНО</string>
+    <string name="tv_status_trusted">ДОВЕРЕННОЕ</string>
+    <string name="wear_catalog_sort_newest">Новые</string>
+    <string name="wear_catalog_sort_stars">Звезды</string>
+    <string name="wear_catalog_sort_official">Официальные</string>
+    <string name="wear_catalog_sort_by">Сортировка</string>
+    <string name="wear_catalog_filter">Фильтр</string>
 </resources>

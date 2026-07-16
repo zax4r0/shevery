@@ -1118,7 +1118,11 @@ private suspend fun explainCommandWithGemini(
         conn.doOutput = true
         conn.setRequestProperty("Content-Type", "application/json")
 
-        val prompt = "Explain the following shell command and its execution output in a clear, concise, and helpful developer-focused way. If there are errors or warnings, explain what caused them and how to resolve them:\n\nCommand: $command\n\nOutput:\n$output"
+        val currentLocale = java.util.Locale.getDefault()
+        val prompt = "CRITICAL: You must write the entire explanation in the following language: ${currentLocale.displayName} (locale code: ${currentLocale.toLanguageTag()}).\n\n" +
+                "Explain the following shell command and its execution output in a clear, concise, and helpful developer-focused way. If there are errors or warnings, explain what caused them and how to resolve them:\n\n" +
+                "Command: $command\n\n" +
+                "Output:\n$output"
         val requestBody = JSONObject().apply {
             put("contents", JSONArray().apply {
                 put(JSONObject().apply {
