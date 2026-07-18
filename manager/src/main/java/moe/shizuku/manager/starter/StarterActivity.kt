@@ -370,11 +370,57 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
                     val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
 
-                    appendLine("Executing Shevery starter directly via Dhizuku Device Owner...")
-                    dhizukuService.runCommand(moe.shizuku.manager.starter.Starter.internalCommand)
-                    ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.DHIZUKU)
+                    appendLine("Enabling ADB and Wireless Debugging via Dhizuku...")
+                    val adbEnabled = dhizukuService.enableAdb()
+                    if (!adbEnabled) {
+                        appendLine("✗ Failed to enable ADB via Dhizuku.")
+                        throw DhizukuException("Failed to enable ADB via Dhizuku")
+                    }
+                    appendLine("✓ ADB enabled successfully.")
+                    appendLine("Locating Wireless ADB port...")
 
-                    appendLine("✓ Starter command sent to Dhizuku shell.")
+                    var adbPort = -1
+                    for (i in 1..10) {
+                        adbPort = dhizukuService.getAdbPort()
+                        if (adbPort > 0) break
+                        appendLine("Waiting for Wireless ADB port... ($i/10)")
+                        kotlinx.coroutines.delay(500)
+                    }
+
+                    if (adbPort <= 0) {
+                        appendLine("✗ Failed to detect Wireless ADB port. Make sure Wireless Debugging is running.")
+                        throw DhizukuException("Failed to detect Wireless ADB port")
+                    }
+
+                    appendLine("✓ Wireless ADB port found: $adbPort")
+                    appendLine("Connecting to local ADB and executing starter command...")
+
+                    val key = try {
+                        AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
+                    } catch (e: Throwable) {
+                        e.printStackTrace()
+                        appendLine("\n${Log.getStackTraceString(e)}")
+                        postResult(AdbKeyException(e))
+                        return@launch
+                    }
+
+                    AdbClient("127.0.0.1", adbPort, key).runCatching {
+                        connect()
+                        ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.DHIZUKU)
+                        shellCommand(Starter.internalCommand) {
+                            synchronized(outputLock) {
+                                sb.append(String(it))
+                            }
+                            postResult()
+                        }
+                        close()
+                    }.onFailure {
+                        appendLine("\n✗ Local ADB connection failed: ${it.message}")
+                        appendLine("Please make sure you have paired the device with Shizuku once.")
+                        throw it
+                    }
+
+                    appendLine("✓ Starter command executed successfully.")
                     appendLine("Waiting for Shevery service to initialize...")
                     if (waitForShizukuBinder()) {
                         appendLine("✓ Shevery binder verified.")

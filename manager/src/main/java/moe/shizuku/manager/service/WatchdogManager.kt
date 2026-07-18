@@ -445,15 +445,27 @@ object WatchdogManager {
                     return
                 }
                 val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
-                logi("Watchdog executing Shevery starter directly via Dhizuku Device Owner...")
-                dhizukuService.runCommand(Starter.internalCommand)
-                if (waitForShizukuBinder()) {
-                    logi("Watchdog verified Shevery binder after Dhizuku restart")
-                } else {
-                    logd("Watchdog Dhizuku starter command completed, but binder did not become available")
-                    if (ModuleSettings.isNotifyOnServiceDeath()) {
-                        showDeathNotification(context)
+                logi("Watchdog enabling ADB via Dhizuku...")
+                if (dhizukuService.enableAdb()) {
+                    var adbPort = -1
+                    for (i in 1..10) {
+                        adbPort = dhizukuService.getAdbPort()
+                        if (adbPort > 0) break
+                        kotlinx.coroutines.delay(500)
                     }
+                    if (adbPort > 0) {
+                        logi("Watchdog found Wireless ADB port: $adbPort")
+                        val key = AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
+                        AdbClient("127.0.0.1", adbPort, key).use { client ->
+                            client.connect()
+                            client.shellCommand(Starter.internalCommand) { _ -> }
+                        }
+                        logi("Watchdog started Shevery server via Dhizuku-automated ADB successfully")
+                    } else {
+                        logd("Watchdog Dhizuku restart failed: could not detect ADB port")
+                    }
+                } else {
+                    logd("Watchdog Dhizuku restart failed: could not enable ADB")
                 }
             } finally {
                 connection?.let { conn ->
