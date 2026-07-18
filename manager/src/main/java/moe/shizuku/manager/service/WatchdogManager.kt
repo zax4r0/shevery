@@ -308,8 +308,28 @@ object WatchdogManager {
             }
             try {
                 val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
-                dhizukuService.runCommand(Starter.internalCommand)
-                logi("Watchdog started Shevery server via Dhizuku successfully")
+                logi("Watchdog enabling ADB via Dhizuku...")
+                if (dhizukuService.enableAdb()) {
+                    var adbPort = -1
+                    for (i in 1..10) {
+                        adbPort = dhizukuService.getAdbPort()
+                        if (adbPort > 0) break
+                        kotlinx.coroutines.delay(500)
+                    }
+                    if (adbPort > 0) {
+                        logi("Watchdog found Wireless ADB port: $adbPort")
+                        val key = AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
+                        AdbClient("127.0.0.1", adbPort, key).use { client ->
+                            client.connect()
+                            client.shellCommand(Starter.internalCommand) { _ -> }
+                        }
+                        logi("Watchdog started Shevery server via Dhizuku-automated ADB successfully")
+                    } else {
+                        logd("Watchdog Dhizuku restart failed: could not detect ADB port")
+                    }
+                } else {
+                    logd("Watchdog Dhizuku restart failed: could not enable ADB")
+                }
             } finally {
                 connection?.let { conn ->
                     try {
