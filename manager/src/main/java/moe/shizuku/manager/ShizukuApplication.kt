@@ -40,6 +40,7 @@ class ShizukuApplication : Application() {
         application = this
         init(this)
         moe.shizuku.manager.service.WatchdogManager.init(this)
+        moe.shizuku.manager.service.WatchdogManager.reconcileService(this)
         moe.shizuku.manager.service.SheveryNotificationManager.setup(this)
     }
 

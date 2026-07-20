@@ -6,50 +6,84 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import moe.shizuku.manager.MainActivity
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.ShizukuSettings.LaunchMethod
 import moe.shizuku.manager.adb.AdbClient
 import moe.shizuku.manager.adb.AdbKey
+import moe.shizuku.manager.adb.AdbMdns
 import moe.shizuku.manager.adb.PreferenceAdbKeyStore
 import moe.shizuku.manager.ktx.logd
 import moe.shizuku.manager.ktx.logi
 import moe.shizuku.manager.module.ModuleSettings
 import moe.shizuku.manager.starter.Starter
+import moe.shizuku.manager.utils.EnvironmentUtils
 import rikka.shizuku.Shizuku
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 object WatchdogManager {
 
-    @Volatile
-    var expectingDeath = false
-
     private const val CHANNEL_ID = "service_watchdog"
     private const val NOTIFICATION_ID = 1001
+    private const val EXPECTED_DEATH_WINDOW_MS = 10_000L
+    private const val WIRELESS_ADB_DISCOVERY_TIMEOUT_SECONDS = 5L
+    private const val DHIZUKU_BIND_TIMEOUT_MS = 10_000L
+
+    @Volatile
+    var expectingDeath = false
+        set(value) {
+            field = value
+            expectedDeathDeadlineMillis = if (value) {
+                SystemClock.elapsedRealtime() + EXPECTED_DEATH_WINDOW_MS
+            } else {
+                0L
+            }
+        }
+
+    @Volatile
+    private var expectedDeathDeadlineMillis = 0L
+
+    @Volatile
     private var initialized = false
 
+    private val restartInProgress = AtomicBoolean(false)
+
     fun init(context: Context) {
+        val appContext = context.applicationContext
         if (initialized) return
         initialized = true
 
         logi("Initializing service watchdog")
 
         Shizuku.addBinderDeadListener {
-            onServiceDied(context)
+            onServiceDied(appContext)
         }
+    }
+
+    fun isEnabled(): Boolean {
+        return ModuleSettings.isAutoRestartOnCrash() || ModuleSettings.isKeepAlive()
+    }
+
+    fun reconcileService(context: Context) {
+        WatchdogService.reconcile(context.applicationContext)
     }
 
     private fun onServiceDied(context: Context) {
         logd("Service died detected by watchdog")
 
-        if (expectingDeath) {
+        if (consumeExpectedDeath()) {
             logi("Service death was expected (user stopped it). Resetting flag.")
-            expectingDeath = false
             return
         }
 
@@ -57,8 +91,32 @@ object WatchdogManager {
             showDeathNotification(context)
         }
 
-        if (ModuleSettings.isAutoRestartOnCrash() || ModuleSettings.isKeepAlive()) {
+        if (isEnabled()) {
             attemptRestart(context)
+        }
+    }
+
+    private fun consumeExpectedDeath(): Boolean {
+        if (!expectingDeath) return false
+
+        val now = SystemClock.elapsedRealtime()
+        val deadline = expectedDeathDeadlineMillis
+        expectingDeath = false
+
+        if (deadline == 0L || now <= deadline) {
+            return true
+        }
+
+        logd("Ignoring stale expected-death flag")
+        return false
+    }
+
+    private fun clearExpectedDeathWhenStale() {
+        if (!expectingDeath) return
+        val deadline = expectedDeathDeadlineMillis
+        if (deadline != 0L && SystemClock.elapsedRealtime() > deadline) {
+            logd("Clearing stale expected-death flag")
+            expectingDeath = false
         }
     }
 
@@ -93,139 +151,194 @@ object WatchdogManager {
     }
 
     fun attemptRestart(context: Context) {
-        val lastMode = ShizukuSettings.getLastLaunchMode()
-        logi("Attempting to restart service (Last mode: $lastMode)")
+        val appContext = context.applicationContext
+        clearExpectedDeathWhenStale()
 
-        when (lastMode) {
-            LaunchMethod.ROOT -> {
-                CoroutineScope(Dispatchers.IO).launch {
-                    if (!Shell.getShell().isRoot) {
-                        Shell.getCachedShell()?.close()
-                    }
-                    if (Shell.getShell().isRoot) {
-                        Shell.cmd(Starter.internalCommand).exec()
-                    }
+        if (!restartInProgress.compareAndSet(false, true)) {
+            logd("Restart already in progress, skipping duplicate watchdog restart")
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val lastMode = ShizukuSettings.getLastLaunchMode()
+                logi("Attempting to restart service (Last mode: $lastMode)")
+
+                when (lastMode) {
+                    LaunchMethod.ROOT -> restartRoot()
+                    LaunchMethod.ADB -> restartAdb(appContext)
+                    LaunchMethod.DHIZUKU -> restartDhizuku(appContext)
                 }
-            }
-            LaunchMethod.ADB -> {
-                // If TCP mode was enabled, we can try localhost:5555
-                if (ShizukuSettings.isTcpMode()) {
-                    restartTcp(context)
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    restartWirelessAdb(context)
-                }
-            }
-            LaunchMethod.DHIZUKU -> {
-                restartDhizuku(context)
+            } finally {
+                restartInProgress.set(false)
             }
         }
     }
 
     fun stopServer() {
+        expectingDeath = true
         try {
-            expectingDeath = true
             Shizuku.exit()
-        } catch (_: Throwable) {}
-    }
-
-    private fun restartTcp(context: Context) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val host = "127.0.0.1"
-                val port = 5555
-                val key = AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
-                val client = AdbClient(host, port, key)
-                client.connect()
-                client.shellCommand(Starter.internalCommand) { _ -> }
-                client.close()
-                logi("Restart via TCP sent")
-            } catch (e: Exception) {
-                logd("Restart via TCP failed: ${e.message}")
-            }
+        } catch (_: Throwable) {
+            expectingDeath = false
         }
     }
 
-    private fun restartWirelessAdb(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        CoroutineScope(Dispatchers.IO).launch {
-            val latch = java.util.concurrent.CountDownLatch(1)
-            val adbMdns = moe.shizuku.manager.adb.AdbMdns(context, moe.shizuku.manager.adb.AdbMdns.TLS_CONNECT) { port ->
-                if (port <= 0) return@AdbMdns
-                try {
-                    val keystore = PreferenceAdbKeyStore(ShizukuSettings.getPreferences())
-                    val key = AdbKey(keystore, "shizuku")
-                    val client = AdbClient("127.0.0.1", port, key)
+    private fun restartRoot() {
+        try {
+            if (!Shell.getShell().isRoot) {
+                Shell.getCachedShell()?.close()
+            }
+            if (Shell.getShell().isRoot) {
+                Shell.cmd(Starter.internalCommand).exec()
+            }
+        } catch (e: Exception) {
+            logd("Watchdog root restart failed: ${e.message}")
+        }
+    }
+
+    private fun restartAdb(context: Context) {
+        if (ShizukuSettings.isTcpMode() && restartTcp(context)) {
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            restartWirelessAdb(context)
+        }
+    }
+
+    private fun restartTcp(context: Context): Boolean {
+        val livePort = EnvironmentUtils.getLiveAdbTcpPort()
+        val configuredPort = EnvironmentUtils.getAdbTcpPort()
+        val candidatePorts = sequenceOf(livePort, configuredPort, 5555)
+            .filter { it > 0 }
+            .distinct()
+            .toList()
+
+        if (candidatePorts.isEmpty()) {
+            logd("Restart via TCP skipped: no candidate ADB TCP ports")
+            return false
+        }
+
+        val key = AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
+        for (port in candidatePorts) {
+            try {
+                AdbClient("127.0.0.1", port, key).use { client ->
                     client.connect()
                     client.shellCommand(Starter.internalCommand) { _ -> }
-                    client.close()
-                    logi("Restart via Wireless ADB successful on port $port")
-                } catch (e: Exception) {
-                    logd("Restart via Wireless ADB failed on port $port: ${e.message}")
                 }
-                latch.countDown()
+                logi("Restart via TCP sent on port $port")
+                return true
+            } catch (e: Exception) {
+                logd("Restart via TCP failed on port $port: ${e.message}")
             }
+        }
+        return false
+    }
+
+    private fun restartWirelessAdb(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+
+        var restarted = false
+        val latch = CountDownLatch(1)
+        val adbMdns = AdbMdns(context, AdbMdns.TLS_CONNECT) { port ->
+            if (port <= 0 || restarted) return@AdbMdns
+            try {
+                val keystore = PreferenceAdbKeyStore(ShizukuSettings.getPreferences())
+                val key = AdbKey(keystore, "shizuku")
+                AdbClient("127.0.0.1", port, key).use { client ->
+                    client.connect()
+                    client.shellCommand(Starter.internalCommand) { _ -> }
+                }
+                restarted = true
+                logi("Restart via Wireless ADB successful on port $port")
+                latch.countDown()
+            } catch (e: Exception) {
+                logd("Restart via Wireless ADB failed on port $port: ${e.message}")
+            }
+        }
+
+        return try {
             adbMdns.start()
-            latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            latch.await(WIRELESS_ADB_DISCOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            restarted
+        } finally {
             adbMdns.stop()
         }
     }
 
-    private fun restartDhizuku(context: Context) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                logi("Watchdog attempting Dhizuku restart...")
-                val initResult = com.rosan.dhizuku.api.Dhizuku.init(context.applicationContext)
-                if (!initResult) {
-                    logd("Dhizuku init failed in watchdog")
-                    return@launch
-                }
-                if (!com.rosan.dhizuku.api.Dhizuku.isPermissionGranted()) {
-                    logd("Dhizuku permission is not granted in watchdog")
-                    return@launch
-                }
-                val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
-                    android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
-                )
-                var connection: android.content.ServiceConnection? = null
-                val serviceResult = kotlinx.coroutines.withTimeoutOrNull(10000) {
-                    kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
-                        val conn = object : android.content.ServiceConnection {
-                            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                                if (cont.isActive) cont.resumeWith(Result.success(service))
-                            }
-                            override fun onServiceDisconnected(name: android.content.ComponentName?) {}
+    private suspend fun restartDhizuku(context: Context) {
+        try {
+            logi("Watchdog attempting Dhizuku restart...")
+            val initResult = com.rosan.dhizuku.api.Dhizuku.init(context.applicationContext)
+            if (!initResult) {
+                logd("Dhizuku init failed in watchdog")
+                return
+            }
+            if (!com.rosan.dhizuku.api.Dhizuku.isPermissionGranted()) {
+                logd("Dhizuku permission is not granted in watchdog")
+                return
+            }
+            val userServiceArgs = com.rosan.dhizuku.api.DhizukuUserServiceArgs(
+                android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
+            )
+            var connection: android.content.ServiceConnection? = null
+            val serviceResult = withTimeoutOrNull(DHIZUKU_BIND_TIMEOUT_MS) {
+                suspendCancellableCoroutine<android.os.IBinder?> { cont ->
+                    val conn = object : android.content.ServiceConnection {
+                        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                            if (cont.isActive) cont.resumeWith(Result.success(service))
                         }
-                        connection = conn
-                        val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
-                        if (!bound && cont.isActive) {
-                            cont.resumeWith(Result.success(null))
-                        }
-                        cont.invokeOnCancellation {
-                            try {
-                                com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
-                            } catch (e: Exception) { }
-                        }
+                        override fun onServiceDisconnected(name: android.content.ComponentName?) {}
                     }
-                }
-                if (serviceResult == null) {
-                    logd("Dhizuku service binding failed or timed out in watchdog")
-                    return@launch
-                }
-                try {
-                    val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
-                    dhizukuService.runCommand(Starter.internalCommand)
-                    logi("Watchdog started Shevery server via Dhizuku successfully")
-                } finally {
-                    connection?.let { conn ->
+                    connection = conn
+                    val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
+                    if (!bound && cont.isActive) {
+                        cont.resumeWith(Result.success(null))
+                    }
+                    cont.invokeOnCancellation {
                         try {
                             com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
                         } catch (e: Exception) { }
                     }
                 }
-            } catch (e: Exception) {
-                logd("Watchdog Dhizuku restart failed: ${e.message}")
             }
+            if (serviceResult == null) {
+                logd("Dhizuku service binding failed or timed out in watchdog")
+                return
+            }
+            try {
+                val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
+                logi("Watchdog enabling ADB via Dhizuku...")
+                if (dhizukuService.enableAdb()) {
+                    var adbPort = -1
+                    for (i in 1..10) {
+                        adbPort = dhizukuService.getAdbPort()
+                        if (adbPort > 0) break
+                        kotlinx.coroutines.delay(500)
+                    }
+                    if (adbPort > 0) {
+                        logi("Watchdog found Wireless ADB port: $adbPort")
+                        val key = AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
+                        AdbClient("127.0.0.1", adbPort, key).use { client ->
+                            client.connect()
+                            client.shellCommand(Starter.internalCommand) { _ -> }
+                        }
+                        logi("Watchdog started Shevery server via Dhizuku-automated ADB successfully")
+                    } else {
+                        logd("Watchdog Dhizuku restart failed: could not detect ADB port")
+                    }
+                } else {
+                    logd("Watchdog Dhizuku restart failed: could not enable ADB")
+                }
+            } finally {
+                connection?.let { conn ->
+                    try {
+                        com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
+                    } catch (e: Exception) { }
+                }
+            }
+        } catch (e: Exception) {
+            logd("Watchdog Dhizuku restart failed: ${e.message}")
         }
     }
 }

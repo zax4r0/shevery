@@ -7,6 +7,9 @@
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"
+        tools:targetApi="34" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
@@ -166,6 +169,16 @@
             android:exported="true"
             android:permission="moe.shizuku.manager.permission.API_V23" />
 
+        <service
+            android:name=".service.WatchdogService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps Shevery service watchdog monitoring active while keep-alive or auto-restart is enabled." />
+        </service>
+
         <receiver
             android:name=".receiver.BootCompleteReceiver"
             android:directBootAware="true"
@@ -174,6 +187,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receiver.AutoDisableUsbDebuggingReceiver"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
