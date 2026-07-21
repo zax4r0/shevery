@@ -107,10 +107,12 @@ class RequestPermissionActivity : AppActivity() {
             finish()
             return
         }
-        if (!checkSelfPermission()) {
-            setResult(uid, pid, requestCode, allowed = false, onetime = true)
-            return
-        }
+
+        // Always deny automatic permission prompts for security/anti-detection.
+        // User must manually enable permission for this app in the Shevery manager.
+        setResult(uid, pid, requestCode, allowed = false, onetime = true)
+        finish()
+        return
 
         val label = try {
             ai.loadLabel(packageManager)
