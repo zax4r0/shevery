@@ -18,8 +18,11 @@ import kotlinx.coroutines.launch
 import moe.shizuku.manager.AppConstants.EXTRA
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
+import moe.shizuku.manager.adb.AdbClient
+import moe.shizuku.manager.adb.AdbKey
 import moe.shizuku.manager.adb.AdbStarter
 import moe.shizuku.manager.adb.AdbKeyException
+import moe.shizuku.manager.adb.PreferenceAdbKeyStore
 import moe.shizuku.manager.app.AppActivity
 import moe.shizuku.manager.ui.compose.ExpressiveCard
 import moe.shizuku.manager.ui.compose.HtmlText
