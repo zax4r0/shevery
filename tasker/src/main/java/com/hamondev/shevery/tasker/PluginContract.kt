@@ -19,12 +19,27 @@ object PluginContract {
 
     const val KEY_COMMAND = "command"
     const val KEY_CONDITION = "condition"
+    const val KEY_CONNECTOR_ENABLED = "shizuku_connector_enabled"
+    const val KEY_AUTH_TOKEN = "auth_token"
+    const val EXTRA_AUTH = "auth"
     const val VALUE_CONDITION_RUNNING = "running"
 
     const val MANAGER_PACKAGE = "com.hamondev.shevery"
     const val MANAGER_CONTROL_RECEIVER = "moe.shizuku.manager.receiver.SheveryControlReceiver"
     const val ACTION_START_SERVER = "moe.shizuku.manager.action.START_SERVER"
     const val ACTION_STOP_SERVER = "moe.shizuku.manager.action.STOP_SERVER"
+
+    const val ACTION_DIRECT_START = "com.hamondev.shevery.action.START_SERVER"
+    const val ACTION_DIRECT_STOP = "com.hamondev.shevery.action.STOP_SERVER"
+    const val ACTION_DIRECT_RESTART = "com.hamondev.shevery.action.RESTART_SERVER"
+    const val ACTION_DIRECT_TOGGLE = "com.hamondev.shevery.action.TOGGLE_SERVER"
+
+    const val CHANNEL_ID_ALERTS = "automation_alerts"
+    const val NOTIFICATION_ID_AUTH = 1450
+    const val NOTIFICATION_ID_CONNECTOR = 1451
+
+    const val EXTRA_TARGET_SECTION = "target_section"
+    const val TARGET_SECTION_AUTOMATION = "automation"
 }
 
 enum class Command(

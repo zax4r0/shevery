@@ -1,18 +1,21 @@
 package moe.shizuku.manager.settings
 
-import android.content.Intent
 import android.os.Bundle
+import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import moe.shizuku.manager.R
-import moe.shizuku.manager.accessibility.AccessibilityManagerActivity
 import moe.shizuku.manager.app.AppActivity
 import moe.shizuku.manager.module.ModuleSettings
 import moe.shizuku.manager.service.WatchdogManager
@@ -28,14 +31,14 @@ class LabFeaturesActivity : AppActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
+            val context = LocalContext.current
             var connectorEnabled by remember { mutableStateOf(ModuleSettings.isConnectorEnabled()) }
-            var dhizukuEnabled by remember { mutableStateOf(ModuleSettings.isDhizukuEnabled()) }
-            var keepAlive by remember { mutableStateOf(ModuleSettings.isKeepAlive()) }
             var verboseLogging by remember { mutableStateOf(ModuleSettings.isVerboseLogging()) }
-            var autoRestart by remember { mutableStateOf(ModuleSettings.isAutoRestartOnCrash()) }
-            var notifyDeath by remember { mutableStateOf(ModuleSettings.isNotifyOnServiceDeath()) }
+            var notifyRecovery by remember { mutableStateOf(ModuleSettings.isNotifyOnRecovery()) }
+            var autoRefresh by remember { mutableStateOf(ModuleSettings.isAutoRefreshOnResume()) }
+            var aiExplain by remember { mutableStateOf(ModuleSettings.isComputAiExplainEnabled()) }
             var showUnsafeDialog by remember { mutableStateOf(false) }
-            var showDhizukuDialog by remember { mutableStateOf(false) }
+            var showRevokeDialog by remember { mutableStateOf(false) }
 
             ShizukuExpressiveTheme {
                 ShizukuLazyScaffold(
@@ -58,73 +61,30 @@ class LabFeaturesActivity : AppActivity() {
                                     }
                                 }
                             )
-                            GroupDivider()
-                            SwitchSettingsRow(
-                                icon = R.drawable.ic_outline_info_24,
-                                title = stringResource(R.string.dhizuku_mode_title),
-                                summary = stringResource(R.string.dhizuku_mode_summary),
-                                checked = dhizukuEnabled,
-                                onCheckedChange = { enabled ->
-                                    if (enabled) {
-                                        showDhizukuDialog = true
-                                    } else {
-                                        dhizukuEnabled = false
-                                        ModuleSettings.setDhizukuEnabled(false)
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    item {
-                        SettingsGroup(title = stringResource(R.string.accessibility_manager_lab_group)) {
-                            SettingsRow(
-                                icon = R.drawable.ic_system_icon,
-                                title = stringResource(R.string.accessibility_manager_lab_title),
-                                summary = stringResource(R.string.accessibility_manager_lab_summary),
-                                onClick = {
-                                    startActivity(
-                                        Intent(this@LabFeaturesActivity, AccessibilityManagerActivity::class.java)
-                                    )
-                                }
-                            )
                         }
                     }
 
                     item {
                         SettingsGroup(title = stringResource(R.string.lab_service_behavior_title)) {
                             SwitchSettingsRow(
-                                icon = R.drawable.ic_server_ok_24dp,
-                                title = stringResource(R.string.lab_keep_alive_title),
-                                summary = stringResource(R.string.lab_keep_alive_summary),
-                                checked = keepAlive,
-                                onCheckedChange = { value ->
-                                    keepAlive = value
-                                    ModuleSettings.setKeepAlive(value)
-                                    WatchdogManager.reconcileService(this@LabFeaturesActivity)
-                                }
-                            )
-                            GroupDivider()
-                            SwitchSettingsRow(
-                                icon = R.drawable.ic_system_icon,
-                                title = stringResource(R.string.lab_auto_restart_title),
-                                summary = stringResource(R.string.lab_auto_restart_summary),
-                                checked = autoRestart,
-                                onCheckedChange = { value ->
-                                    autoRestart = value
-                                    ModuleSettings.setAutoRestartOnCrash(value)
-                                    WatchdogManager.reconcileService(this@LabFeaturesActivity)
-                                }
-                            )
-                            GroupDivider()
-                            SwitchSettingsRow(
                                 icon = R.drawable.ic_outline_notifications_active_24,
-                                title = stringResource(R.string.lab_notify_death_title),
-                                summary = stringResource(R.string.lab_notify_death_summary),
-                                checked = notifyDeath,
+                                title = stringResource(R.string.lab_notify_recovery_title),
+                                summary = stringResource(R.string.lab_notify_recovery_summary),
+                                checked = notifyRecovery,
                                 onCheckedChange = { value ->
-                                    notifyDeath = value
-                                    ModuleSettings.setNotifyOnServiceDeath(value)
+                                    notifyRecovery = value
+                                    ModuleSettings.setNotifyOnRecovery(value)
+                                }
+                            )
+                            GroupDivider()
+                            SwitchSettingsRow(
+                                icon = R.drawable.ic_server_restart,
+                                title = stringResource(R.string.lab_auto_refresh_title),
+                                summary = stringResource(R.string.lab_auto_refresh_summary),
+                                checked = autoRefresh,
+                                onCheckedChange = { value ->
+                                    autoRefresh = value
+                                    ModuleSettings.setAutoRefreshOnResume(value)
                                 }
                             )
                         }
@@ -142,56 +102,131 @@ class LabFeaturesActivity : AppActivity() {
                                     ModuleSettings.setVerboseLogging(value)
                                 }
                             )
+                            GroupDivider()
+                            SettingsRow(
+                                icon = R.drawable.ic_adb_24dp,
+                                title = stringResource(R.string.usb_debugging_hide_title),
+                                summary = stringResource(R.string.usb_debugging_hide_open_summary),
+                                onClick = {
+                                    context.startActivity(Intent(context, UsbDebuggingHideActivity::class.java))
+                                }
+                            )
+                        }
+                    }
+
+                    item {
+                        SettingsGroup(title = stringResource(R.string.network_firewall_title)) {
+                            SettingsRow(
+                                icon = R.drawable.ic_security_24dp,
+                                title = stringResource(R.string.network_firewall_title),
+                                summary = stringResource(R.string.network_firewall_open_summary),
+                                onClick = {
+                                    context.startActivity(Intent(context, NetworkFirewallActivity::class.java))
+                                }
+                            )
+                        }
+                    }
+
+                    item {
+                        SettingsGroup(title = stringResource(R.string.lab_ai_title)) {
+                            SwitchSettingsRow(
+                                icon = R.drawable.ic_code_24dp,
+                                title = stringResource(R.string.lab_ai_explain_title),
+                                summary = stringResource(R.string.lab_ai_explain_summary),
+                                checked = aiExplain,
+                                onCheckedChange = { value ->
+                                    aiExplain = value
+                                    ModuleSettings.setComputAiExplainEnabled(value)
+                                }
+                            )
+                        }
+                    }
+
+                    item {
+                        SettingsGroup(title = stringResource(R.string.lab_maintenance_title)) {
+                            SettingsRow(
+                                icon = R.drawable.ic_server_restart,
+                                title = stringResource(R.string.lab_restart_service_title),
+                                summary = stringResource(R.string.lab_restart_service_summary),
+                                onClick = {
+                                    WatchdogManager.attemptRestart(context)
+                                    Toast.makeText(context, "Restart requested", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                            GroupDivider()
+                            SettingsRow(
+                                icon = R.drawable.ic_outline_notifications_active_24,
+                                title = stringResource(R.string.lab_clear_update_title),
+                                summary = stringResource(R.string.lab_clear_update_summary),
+                                onClick = {
+                                    ModuleSettings.clearPendingUpdate()
+                                    Toast.makeText(context, "Update banner dismissed", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                            GroupDivider()
+                            SettingsRow(
+                                icon = R.drawable.ic_warning_24,
+                                title = stringResource(R.string.lab_revoke_trusted_title),
+                                summary = stringResource(R.string.lab_revoke_trusted_summary),
+                                onClick = { showRevokeDialog = true }
+                            )
                         }
                     }
                 }
 
                 if (showUnsafeDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showUnsafeDialog = false },
-                        title = { Text(stringResource(R.string.unsafe_warning_title)) },
-                        text = { Text(stringResource(R.string.unsafe_warning_message)) },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                showUnsafeDialog = false
-                                connectorEnabled = true
-                                ModuleSettings.setConnectorEnabled(true)
-                            }) {
-                                Text(stringResource(android.R.string.ok))
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showUnsafeDialog = false }) {
-                                Text(stringResource(android.R.string.cancel))
-                            }
+                    LabWarningDialog(
+                        onDismiss = { showUnsafeDialog = false },
+                        titleRes = R.string.unsafe_warning_title,
+                        messageRes = R.string.unsafe_warning_message,
+                        onConfirm = {
+                            showUnsafeDialog = false
+                            connectorEnabled = true
+                            ModuleSettings.setConnectorEnabled(true)
                         }
                     )
                 }
 
-                if (showDhizukuDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showDhizukuDialog = false },
-                        title = { Text(stringResource(R.string.dhizuku_warning_title)) },
-                        text = { Text(stringResource(R.string.dhizuku_warning_message)) },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                showDhizukuDialog = false
-                                dhizukuEnabled = true
-                                ModuleSettings.setDhizukuEnabled(true)
-                            }) {
-                                Text(stringResource(android.R.string.ok))
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showDhizukuDialog = false }) {
-                                Text(stringResource(android.R.string.cancel))
-                            }
+                if (showRevokeDialog) {
+                    LabWarningDialog(
+                        onDismiss = { showRevokeDialog = false },
+                        titleRes = R.string.lab_revoke_trusted_warning_title,
+                        messageRes = R.string.lab_revoke_trusted_warning_message,
+                        onConfirm = {
+                            showRevokeDialog = false
+                            ModuleSettings.clearTrustedModules()
+                            Toast.makeText(context, "Trusted modules revoked", Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
-
 
             }
         }
+    }
+
+    @Composable
+    private fun LabWarningDialog(
+        onDismiss: () -> Unit,
+        titleRes: Int,
+        messageRes: Int,
+        onConfirm: () -> Unit
+    ) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(stringResource(titleRes)) },
+            text = { Text(stringResource(messageRes)) },
+            confirmButton = {
+                TextButton(onClick = onConfirm) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = MaterialTheme.shapes.extraLarge
+        )
     }
 }

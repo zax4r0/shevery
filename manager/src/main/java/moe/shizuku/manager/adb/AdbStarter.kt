@@ -1,15 +1,12 @@
 package moe.shizuku.manager.adb
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.provider.Settings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.starter.Starter
-import java.io.EOFException
-import java.net.SocketException
+import moe.shizuku.manager.utils.EnvironmentUtils
+import java.io.IOException
 
 object AdbStarter {
 
@@ -22,12 +19,15 @@ object AdbStarter {
         listener: ((ByteArray) -> Unit)? = null,
         log: ((String) -> Unit)? = null,
     ) {
+        moe.shizuku.manager.service.WatchdogManager.expectingDeath = true
         val key = AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
         val tcpMode = ShizukuSettings.isTcpMode()
         val targetPort = if (tcpMode) TCP_MODE_PORT else port
+        var startedSuccessfully = false
 
         try {
-            if (tcpMode && port != targetPort) {
+            val isTargetAlreadyLive = EnvironmentUtils.isAdbPortLive(targetPort)
+            if (tcpMode && port != targetPort && !isTargetAlreadyLive) {
                 log?.invoke("Switching ADB from port $port to TCP port $targetPort...")
                 switchToTcp(host, port, targetPort, key)
             }
@@ -35,10 +35,17 @@ object AdbStarter {
             log?.invoke("Connecting to ADB on port $targetPort...")
             connectWithRetry(host, targetPort, key) { client ->
                 ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.ADB)
+                ShizukuSettings.setLastAdbPort(targetPort)
                 client.shellCommand(Starter.internalCommand, listener)
             }
+            startedSuccessfully = true
         } finally {
-            if (tcpMode) disableWirelessDebugging(context)
+            // Only touch wireless debugging when this starter put the device
+            // in TCP mode and successfully launched the service; unconditional
+            // disable would break automatic retry and recovery on failure.
+            if (tcpMode && startedSuccessfully) {
+                disableWirelessDebugging(context)
+            }
         }
     }
 
@@ -47,6 +54,7 @@ object AdbStarter {
         currentPort: Int,
         targetPort: Int = TCP_MODE_PORT,
     ) {
+        moe.shizuku.manager.service.WatchdogManager.expectingDeath = true
         val key = AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
         switchToTcp(host, currentPort, targetPort, key)
     }
@@ -56,10 +64,8 @@ object AdbStarter {
             client.connect()
             try {
                 client.command("tcpip:$targetPort")
-            } catch (e: EOFException) {
-                // Expected: adbd restarts when switching from wireless debugging to TCP mode.
-            } catch (e: SocketException) {
-                // Expected: adbd restarts when switching from wireless debugging to TCP mode.
+            } catch (e: IOException) {
+                // Expected: adbd restarts (dropping TCP/TLS socket) when switching to TCP mode.
             }
         }
     }
@@ -92,11 +98,8 @@ object AdbStarter {
 
     private fun disableWirelessDebugging(context: Context?) {
         val appContext = context?.applicationContext ?: return
-        if (appContext.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) {
-            return
-        }
-        runCatching {
-            Settings.Global.putInt(appContext.contentResolver, "adb_wifi_enabled", 0)
-        }
+        // WRITE_SECURE_SETTINGS and Device Owner may both write 0 to the
+        // allowlisted key — AdbArm picks whichever this install has.
+        AdbArm.disarmWifiEnabled(appContext)
     }
 }

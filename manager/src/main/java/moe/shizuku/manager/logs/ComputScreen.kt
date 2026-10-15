@@ -11,8 +11,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.ParcelFileDescriptor
-import android.os.SystemClock
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -30,8 +30,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,13 +39,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -56,13 +54,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Delete
@@ -70,6 +68,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
@@ -90,6 +89,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -97,9 +100,11 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -107,12 +112,14 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -126,18 +133,21 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import moe.shizuku.manager.R
+import moe.shizuku.manager.comput.agent.AgentModuleInfo
+import moe.shizuku.manager.module.AdbModuleManager
 import moe.shizuku.manager.module.ModuleSettings
+import moe.shizuku.manager.ui.compose.LocalFloatingNavBarVisible
 import moe.shizuku.manager.ui.compose.ShizukuScaffold
+import moe.shizuku.manager.settings.AiManagerScreen
 import moe.shizuku.manager.utils.AiExplainUtil
 import moe.shizuku.server.IShizukuService
 import org.json.JSONArray
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 
 private data class PresetCommand(
@@ -154,14 +164,18 @@ private data class ComputLogLine(
 )
 
 private val ComputSpring = spring<Float>(
-    dampingRatio = 0.35f,
-    stiffness = Spring.StiffnessLow
+    dampingRatio = 0.4f,
+    stiffness = Spring.StiffnessMediumLow
 )
 
 @Composable
-fun ComputScreen() {
+fun ComputScreen(
+    listState: LazyListState = rememberLazyListState(),
+    onSubpageChange: (Boolean) -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var command by remember { mutableStateOf("pm list packages -3") }
     var outputLog by remember { mutableStateOf(context.getString(R.string.comput_console_initialized)) }
@@ -181,8 +195,41 @@ fun ComputScreen() {
     var cmdHistory by remember { mutableStateOf(listOf<String>()) }
 
     var showCommandiumSheet by remember { mutableStateOf(false) }
+    var showAgentSheet by remember { mutableStateOf(false) }
+    var showAiManager by remember { mutableStateOf(false) }
     var showMacrosSheet by remember { mutableStateOf(false) }
     var showPresetsSheet by remember { mutableStateOf(false) }
+
+    val navBarState = LocalFloatingNavBarVisible.current
+
+    LaunchedEffect(showAiManager) {
+        val isSubpage = showAiManager
+        navBarState.value = !isSubpage
+        onSubpageChange(isSubpage)
+        if (isSubpage) {
+            snapshotFlow { navBarState.value }.collect { visible ->
+                if (visible) {
+                    navBarState.value = false
+                }
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            navBarState.value = true
+            onSubpageChange(false)
+        }
+    }
+
+    // AI Provider manager replaces the whole Comput tab while open: composing
+    // it AFTER the Scaffold stacked a second TopAppBar over this one (dead
+    // touches on its buttons); early-return keeps exactly one top bar on screen.
+    if (showAiManager) {
+        BackHandler(onBack = { showAiManager = false })
+        AiManagerScreen(onNavigateUp = { showAiManager = false }, onChanged = {})
+        return
+    }
 
     var isRecording by remember { mutableStateOf(false) }
     val recordedCommands = remember { mutableStateListOf<String>() }
@@ -191,7 +238,8 @@ fun ComputScreen() {
 
     var commandiumPrompt by remember { mutableStateOf("") }
     var isCommandiumGenerating by remember { mutableStateOf(false) }
-    var generatedCommandiumResult by remember { mutableStateOf("") }
+    var commandiumResult by remember { mutableStateOf<Result<String>?>(null) }
+    val commandiumHistory = remember { mutableStateListOf<String>() }
 
     var savedMacros by remember {
         mutableStateOf<Map<String, List<String>>>(
@@ -213,15 +261,19 @@ fun ComputScreen() {
         )
     }
 
-    fun saveMacro(name: String) {
-        val updated = savedMacros.toMutableMap()
-        updated[name] = recordedCommands.toList()
-        savedMacros = updated.toMap()
+    fun persistMacros() {
         val json = JSONObject()
         savedMacros.forEach { (k, v) ->
             json.put(k, JSONArray(v))
         }
         ModuleSettings.setComputMacros(json.toString())
+    }
+
+    fun saveMacro(name: String) {
+        val updated = savedMacros.toMutableMap()
+        updated[name] = recordedCommands.toList()
+        savedMacros = updated.toMap()
+        persistMacros()
         recordedCommands.clear()
     }
 
@@ -229,11 +281,7 @@ fun ComputScreen() {
         val updated = savedMacros.toMutableMap()
         updated.remove(name)
         savedMacros = updated.toMap()
-        val json = JSONObject()
-        savedMacros.forEach { (k, v) ->
-            json.put(k, JSONArray(v))
-        }
-        ModuleSettings.setComputMacros(json.toString())
+        persistMacros()
     }
 
     fun clearConsole() {
@@ -333,6 +381,8 @@ fun ComputScreen() {
                     null
                 )
 
+                val scopeContext = coroutineContext
+
                 val destroy: () -> Unit = { runCatching { remote.destroy() } }
                 val stdoutPfd = remote.getInputStream()
                 val stderrPfd = remote.getErrorStream()
@@ -354,9 +404,7 @@ fun ComputScreen() {
 
                 val finished = run {
                     var done = false
-                    val startedAt = SystemClock.elapsedRealtime()
-                    while (!cancelRequested.get()) {
-                        if (SystemClock.elapsedRealtime() - startedAt >= 120_000L) break
+                    while (!cancelRequested.get() && scopeContext.isActive) {
                         if (remote.waitForTimeout(1L, java.util.concurrent.TimeUnit.SECONDS.name)) {
                             done = true
                             break
@@ -387,9 +435,6 @@ fun ComputScreen() {
                         if (isNotEmpty()) append("\n")
                         append("[E] ")
                         append(context.getString(R.string.comput_cancelled))
-                    } else if (!finished) {
-                        if (isNotEmpty()) append("\n")
-                        append(context.getString(R.string.comput_timed_out))
                     } else if (exitCode != 0) {
                         if (isNotEmpty()) append("\n")
                         append(context.getString(R.string.comput_exit_code, exitCode))
@@ -510,8 +555,12 @@ fun ComputScreen() {
             isExplaining = true
             showGeminiSection = true
             val apiKey = ModuleSettings.getComputApiKey()
-            aiExplanation = explainCommandWithGemini(command, outputLog, apiKey, context,
-                emptyApiKeyMessage = context.getString(R.string.comput_ai_api_key_empty))
+            aiExplanation = AiExplainUtil.explainFailure(
+                contextStr = "Shevery Comput Console Shell Command Execution",
+                inputDetail = "Command: $command",
+                outputLog = outputLog,
+                apiKey = apiKey
+            )
             isExplaining = false
         }
     }
@@ -586,7 +635,12 @@ fun ComputScreen() {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .widthIn(max = 840.dp)
                     .fillMaxWidth()
@@ -634,6 +688,16 @@ fun ComputScreen() {
                                 historyExpanded = true
                             }
                         }
+                    )
+                    ComputUtilityButton(
+                        icon = Icons.Rounded.Tune,
+                        contentDescription = stringResource(R.string.comput_ai_provider_title),
+                        onClick = { showAiManager = true }
+                    )
+                    ComputUtilityButton(
+                        icon = Icons.Rounded.SmartToy,
+                        contentDescription = stringResource(R.string.comput_agent_open),
+                        onClick = { showAgentSheet = true }
                     )
                     ComputUtilityButton(
                         icon = Icons.Rounded.AutoAwesome,
@@ -877,7 +941,20 @@ fun ComputScreen() {
                     showGeminiSection = showGeminiSection,
                     isExplaining = isExplaining,
                     onToggleGemini = {
-                        if (!showGeminiSection && aiExplanation.isBlank() && !isExplaining) {
+                        val activeKey = moe.shizuku.manager.commandium.AiProviderRepository.getActiveKey()
+                        if (activeKey.isBlank()) {
+                            scope.launch {
+                                val action = snackbarHostState.showSnackbar(
+                                    message = context.getString(R.string.comput_ai_no_active_toast),
+                                    actionLabel = "Configure",
+                                    withDismissAction = true,
+                                    duration = SnackbarDuration.Long
+                                )
+                                if (action == SnackbarResult.ActionPerformed) {
+                                    showAiManager = true
+                                }
+                            }
+                        } else if (!showGeminiSection && aiExplanation.isBlank() && !isExplaining) {
                             triggerGeminiExplanation()
                         } else {
                             showGeminiSection = !showGeminiSection
@@ -999,142 +1076,80 @@ fun ComputScreen() {
 
     // Modal BottomSheet for Commandium AI Studio
     if (showCommandiumSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showCommandiumSheet = false },
-            sheetState = rememberModalBottomSheetState()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState())
-                    .imePadding(),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.comput_commandium_assistant),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+        CommandiumSheet(
+            onDismiss = { showCommandiumSheet = false },
+            prompt = commandiumPrompt,
+            onPromptChange = { commandiumPrompt = it },
+            isGenerating = isCommandiumGenerating,
+            onGeneratingChange = { isCommandiumGenerating = it },
+            result = commandiumResult,
+            onResultChange = { r ->
+                commandiumResult = r
+                if (r != null && r.isSuccess) {
+                    commandiumHistory.remove(commandiumPrompt)
+                    commandiumHistory.add(0, commandiumPrompt)
+                    if (commandiumHistory.size > 8) commandiumHistory.removeAt(8)
                 }
-
-                Text(
-                    text = stringResource(R.string.comput_commandium_description),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        "List user installed apps",
-                        "Check battery temperature & status",
-                        "Find files larger than 50MB",
-                        "Get device Android model & build"
-                    ).forEach { suggestion ->
-                        FilterChip(
-                            selected = commandiumPrompt == suggestion,
-                            onClick = { commandiumPrompt = suggestion },
-                            label = { Text(suggestion, style = MaterialTheme.typography.labelSmall) },
-                            shape = CircleShape
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = commandiumPrompt,
-                    onValueChange = { commandiumPrompt = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    label = { Text(stringResource(R.string.comput_commandium_label)) },
-                    placeholder = { Text(stringResource(R.string.comput_commandium_placeholder)) },
-                    maxLines = 3
-                )
-
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isCommandiumGenerating = true
-                            val apiKey = ModuleSettings.getComputApiKey()
-                            generatedCommandiumResult = AiExplainUtil.generateCommand(commandiumPrompt, apiKey)
-                            isCommandiumGenerating = false
-                        }
-                    },
-                    enabled = !isCommandiumGenerating && commandiumPrompt.isNotBlank(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = CircleShape
-                ) {
-                    if (isCommandiumGenerating) {
-                        LoadingIndicator(Modifier.size(18.dp), MaterialTheme.colorScheme.onPrimary)
-                    } else {
-                        Text(stringResource(R.string.comput_ask_commandium), fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                if (generatedCommandiumResult.isNotBlank()) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = stringResource(R.string.comput_generated_command),
-                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            SelectionContainer {
-                                Text(
-                                    text = generatedCommandiumResult,
-                                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        command = generatedCommandiumResult
-                                        showCommandiumSheet = false
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = CircleShape
-                                ) {
-                                    Text(stringResource(R.string.comput_use_command))
-                                }
-                                IconButton(
-                                    onClick = {
-                                        copyToClipboard("Commandium", generatedCommandiumResult, context.getString(R.string.comput_copied_to_clipboard))
-                                    }
-                                ) {
-                                    Icon(Icons.Rounded.ContentCopy, contentDescription = null)
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-        }
+            },
+            scope = scope,
+            onUseCommand = { cmd ->
+                command = cmd
+                showCommandiumSheet = false
+            },
+            onCopy = { text ->
+                copyToClipboard("Commandium", text,
+                    context.getString(R.string.comput_copied_to_clipboard))
+            },
+            onConfigureProvider = {
+                showCommandiumSheet = false
+                showAiManager = true
+            },
+            history = commandiumHistory,
+        )
     }
+
+    // AI agent: plans + runs shell commands and module services with approvals.
+    if (showAgentSheet) {
+        ComputAgentSheet(
+            onDismiss = { showAgentSheet = false },
+            onConfigureProvider = {
+                showAgentSheet = false
+                showAiManager = true
+            },
+            onCopy = { text ->
+                copyToClipboard("Agent", text,
+                    context.getString(R.string.comput_copied_to_clipboard))
+            },
+            modulesProvider = {
+                AdbModuleManager.listModules(context).map { module ->
+                    AgentModuleInfo(
+                        id = module.id,
+                        name = module.name,
+                        description = module.description.orEmpty(),
+                        hasService = module.hasService
+                    )
+                }
+            },
+            onRunShell = { cmd -> executeCommandInternal(cmd) },
+            onRunModuleService = { moduleId ->
+                try {
+                    val module = AdbModuleManager.listModules(context)
+                        .firstOrNull { it.id == moduleId }
+                    if (module == null) {
+                        Pair("[E] Module not found: $moduleId", true)
+                    } else {
+                        val result = AdbModuleManager.runService(module)
+                        Pair(result.combinedOutput, result.exitCode != 0)
+                    }
+                } catch (e: Exception) {
+                    Pair("[E] Module service failed: ${e.message}", true)
+                }
+            },
+        )
+    }
+
+    // AI Provider manager - early-returned at the top of this composable; this
+    // placement is unreachable while it is open, kept only for reference.
 
     // Modal BottomSheet for Macros
     if (showMacrosSheet) {
@@ -1463,7 +1478,7 @@ private fun ComputUtilityButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(42.dp),
+        modifier = Modifier.size(48.dp),
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -1484,37 +1499,48 @@ private fun ComputSearchBar(
     onClear: () -> Unit,
     onClose: () -> Unit
 ) {
-    OutlinedTextField(
+    TextField(
         value = query,
         onValueChange = onQueryChange,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(22.dp),
+        shape = CircleShape,
         singleLine = true,
         leadingIcon = {
             Icon(
                 imageVector = Icons.Rounded.Search,
                 contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )
         },
         trailingIcon = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(end = 4.dp)
+            ) {
                 if (query.isNotEmpty()) {
-                    IconButton(onClick = onClear) {
+                    IconButton(
+                        onClick = onClear,
+                        modifier = Modifier.size(48.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Clear,
                             contentDescription = stringResource(R.string.comput_clear_search_desc),
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
-                IconButton(onClick = onClose) {
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(48.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.comput_close_search_desc),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -1522,7 +1548,9 @@ private fun ComputSearchBar(
         placeholder = { Text(stringResource(R.string.comput_search_hint)) },
         colors = TextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent
         )
     )
 }
@@ -1545,12 +1573,15 @@ private fun ComputOutputCard(
     val scope = rememberCoroutineScope()
     var userScrolledAway by remember { mutableStateOf(false) }
 
+    val bottomProximityPx = with(LocalDensity.current) { 48.dp.toPx() }
     val isNearBottom by remember(lines) {
         derivedStateOf {
             val info = listState.layoutInfo
-            val total = info.totalItemsCount
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            total == 0 || lastVisible >= total - 2
+            val lastVisible = info.visibleItemsInfo.lastOrNull()
+                ?: return@derivedStateOf true
+            val trailingGap = info.viewportEndOffset - (lastVisible.offset + lastVisible.size)
+            lastVisible.index + 1 == info.totalItemsCount &&
+                trailingGap >= -bottomProximityPx
         }
     }
 
@@ -1560,12 +1591,15 @@ private fun ComputOutputCard(
         }
     }
 
-    LaunchedEffect(listState.isScrollInProgress, isNearBottom, isRunning) {
-        if (isRunning && listState.isScrollInProgress && !isNearBottom) {
-            userScrolledAway = true
-        } else if (isNearBottom) {
-            userScrolledAway = false
-        }
+    LaunchedEffect(isNearBottom, isRunning) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                if (isRunning && scrolling && !isNearBottom) {
+                    userScrolledAway = true
+                } else if (isNearBottom) {
+                    userScrolledAway = false
+                }
+            }
     }
 
     LaunchedEffect(lines.size, isRunning, userScrolledAway) {
@@ -1800,18 +1834,15 @@ private fun highlightQuery(
     foreground: Color
 ): AnnotatedString {
     if (query.isBlank()) return AnnotatedString(text)
+    val matches = Regex(java.util.regex.Pattern.quote(query), RegexOption.IGNORE_CASE)
+        .findAll(text)
+        .toList()
+    if (matches.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
-        val lowerText = text.lowercase()
-        val lowerQuery = query.lowercase()
-        var index = 0
-        while (index < text.length) {
-            val match = lowerText.indexOf(lowerQuery, index)
-            if (match < 0) {
-                append(text.substring(index))
-                break
-            }
-            if (match > index) {
-                append(text.substring(index, match))
+        var cursor = 0
+        for (match in matches) {
+            if (match.range.first > cursor) {
+                append(text.substring(cursor, match.range.first))
             }
             withStyle(
                 style = SpanStyle(
@@ -1820,72 +1851,13 @@ private fun highlightQuery(
                     fontWeight = FontWeight.Bold
                 )
             ) {
-                append(text.substring(match, match + lowerQuery.length))
+                append(text.substring(match.range))
             }
-            index = match + lowerQuery.length
+            cursor = match.range.last + 1
         }
-    }
-}
-
-private suspend fun explainCommandWithGemini(
-    command: String,
-    output: String,
-    apiKey: String,
-    context: Context,
-    emptyApiKeyMessage: String = "Google AI Studio API Key is empty! Please configure it in Shevery Settings (Comput Console Settings)."
-): String = withContext(Dispatchers.IO) {
-    if (apiKey.isBlank()) {
-        return@withContext emptyApiKeyMessage
-    }
-    try {
-        val selectedModel = ModuleSettings.getComputGeminiModel()
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$selectedModel:generateContent?key=$apiKey")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.connectTimeout = 15000
-        conn.readTimeout = 15000
-        conn.doOutput = true
-        conn.setRequestProperty("Content-Type", "application/json")
-
-        val currentLocale = java.util.Locale.getDefault()
-        val prompt = "CRITICAL: You must write the entire explanation in the following language: ${currentLocale.displayName} (locale code: ${currentLocale.toLanguageTag()}).\n\n" +
-                "Explain the following shell command and its execution output in a clear, concise, and helpful developer-focused way. If there are errors or warnings, explain what caused them and how to resolve them:\n\n" +
-                "Command: $command\n\n" +
-                "Output:\n$output"
-        val requestBody = JSONObject().apply {
-            put("contents", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("text", prompt)
-                        })
-                    })
-                })
-            })
+        if (cursor < text.length) {
+            append(text.substring(cursor))
         }
-
-        conn.outputStream.use { os ->
-            os.write(requestBody.toString().toByteArray(Charsets.UTF_8))
-            os.flush()
-        }
-
-        val responseCode = conn.responseCode
-        if (responseCode == 200) {
-            val responseText = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(responseText)
-            val text = json.getJSONArray("candidates")
-                .getJSONObject(0)
-                .getJSONObject("content")
-                .getJSONArray("parts")
-                .getJSONObject(0)
-                .getString("text")
-            text.trim()
-        } else {
-            val errText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: context.getString(R.string.comput_gemini_no_details)
-            context.getString(R.string.comput_gemini_api_error, responseCode, errText)
-        }
-    } catch (e: Exception) {
-        context.getString(R.string.comput_gemini_failed, e.message ?: context.getString(R.string.comput_gemini_connection_error))
     }
 }
 

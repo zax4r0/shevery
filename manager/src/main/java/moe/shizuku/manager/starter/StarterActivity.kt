@@ -1,29 +1,50 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package moe.shizuku.manager.starter
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.topjohnwu.superuser.CallbackList
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import moe.shizuku.manager.AppConstants.EXTRA
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.adb.AdbClient
 import moe.shizuku.manager.adb.AdbKey
+import moe.shizuku.manager.adb.AdbArm
 import moe.shizuku.manager.adb.AdbStarter
 import moe.shizuku.manager.adb.AdbKeyException
 import moe.shizuku.manager.adb.PreferenceAdbKeyStore
 import moe.shizuku.manager.app.AppActivity
+import moe.shizuku.manager.utils.ShizukuStateMachine
 import moe.shizuku.manager.ui.compose.ExpressiveCard
 import moe.shizuku.manager.ui.compose.HtmlText
 import moe.shizuku.manager.ui.compose.MonospaceLog
@@ -42,31 +63,26 @@ private class DhizukuException(message: String, cause: Throwable? = null) : Exce
 class StarterActivity : AppActivity() {
 
     private var waitingForService = false
-    private var binderReceivedListener: Shizuku.OnBinderReceivedListener? = null
+
+    private val startedWithRoot by lazy { intent.getBooleanExtra(EXTRA_IS_ROOT, true) }
+    private val startedWithDhizuku by lazy { intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false) }
 
     private val viewModel by viewModels {
         ViewModel(
             this,
-            intent.getBooleanExtra(EXTRA_IS_ROOT, true),
-            intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false),
+            startedWithRoot,
+            startedWithDhizuku,
             intent.getStringExtra(EXTRA_HOST),
             intent.getIntExtra(EXTRA_PORT, 0)
         )
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        binderReceivedListener?.let {
-            Shizuku.removeBinderReceivedListener(it)
-            binderReceivedListener = null
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        moe.shizuku.manager.service.WatchdogManager.isStarterActive = true
 
-        val startedWithRoot = intent.getBooleanExtra(EXTRA_IS_ROOT, true)
-        val startedWithDhizuku = intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false)
+        // Arm adbd before the start flow: WRITE_SECURE_SETTINGS or Device Owner.
+        AdbArm.arm(this)
 
         viewModel.output.observe(this) {
             val output = it.data.orEmpty().trim()
@@ -76,55 +92,33 @@ class StarterActivity : AppActivity() {
                 waitingForService = true
                 moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest(this@StarterActivity)
                 viewModel.appendOutput("Service started, this window will be automatically closed in 3 seconds")
-                window?.decorView?.postDelayed({
+                lifecycleScope.launch {
+                    delay(3000L)
                     if (!isFinishing) finish()
-                }, 3000)
+                }
             } else if (!waitingForService && finished) {
                 waitingForService = true
                 viewModel.appendOutput("")
                 viewModel.appendOutput("Waiting for service...")
 
-                val listener = object : Shizuku.OnBinderReceivedListener {
-                    override fun onBinderReceived() {
-                        Shizuku.removeBinderReceivedListener(this)
-                        binderReceivedListener = null
-                        runOnUiThread {
-                            moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest(this@StarterActivity)
-                            viewModel.appendOutput("Service started, this window will be automatically closed in 3 seconds")
-                            window?.decorView?.postDelayed({
-                                if (!isFinishing) finish()
-                            }, 3000)
-                        }
+                lifecycleScope.launch {
+                    runCatching {
+                        contentResolver.getType(Uri.parse("content://$packageName.shizuku"))
                     }
-                }
-                binderReceivedListener = listener
-                Shizuku.addBinderReceivedListenerSticky(listener)
-            } else if (it.status == Status.ERROR) {
-                var message = 0
-                when (it.error) {
-                    is AdbKeyException -> {
-                        message = R.string.adb_error_key_store
-                    }
-                    is NotRootedException -> {
-                        message = R.string.start_with_root_failed
-                    }
-                    is ConnectException -> {
-                        message = R.string.cannot_connect_port
-                    }
-                    is SSLProtocolException -> {
-                        message = R.string.adb_pair_required
-                    }
-                    is DhizukuException -> {
-                        // Already logged in the output
-                    }
+                    val running = ShizukuStateMachine.awaitRunning(12_000L)
 
-                }
-
-                if (message != 0) {
-                    MaterialAlertDialogBuilder(this)
-                        .setMessage(message)
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show()
+                    if (running || Shizuku.pingBinder()) {
+                        moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest(this@StarterActivity)
+                        viewModel.appendOutput("Service started, this window will be automatically closed in 3 seconds")
+                        delay(3000L)
+                        if (!isFinishing) finish()
+                    } else {
+                        Log.e("Shizuku", "Timed out waiting for service binder. State=${ShizukuStateMachine.get()}, ping=${Shizuku.pingBinder()}")
+                        viewModel.appendOutput("")
+                        viewModel.appendOutput("✗ Timed out waiting for Shevery service to initialize.")
+                        viewModel.appendOutput("  The starter process completed, but the server binder was not received.")
+                        viewModel.appendOutput("  Please try starting again, or check background battery restrictions.")
+                    }
                 }
             }
         }
@@ -134,6 +128,23 @@ class StarterActivity : AppActivity() {
             val output = outputResource?.data.orEmpty()
             val failed = outputResource?.status == Status.ERROR
 
+            var errorDialogRes by rememberSaveable { mutableStateOf<Int?>(null) }
+
+            LaunchedEffect(outputResource?.status, outputResource?.error) {
+                if (outputResource?.status == Status.ERROR) {
+                    val msg = when (outputResource?.error) {
+                        is AdbKeyException -> R.string.adb_error_key_store
+                        is NotRootedException -> R.string.start_with_root_failed
+                        is ConnectException -> R.string.cannot_connect_port
+                        is SSLProtocolException -> R.string.adb_pair_required
+                        else -> null
+                    }
+                    if (msg != null) {
+                        errorDialogRes = msg
+                    }
+                }
+            }
+
             ShizukuExpressiveTheme {
                 ShizukuLazyScaffold(
                     title = stringResource(R.string.starter),
@@ -142,8 +153,7 @@ class StarterActivity : AppActivity() {
                     navigationContentDescription = R.string.accessibility_close
                 ) {
                     item {
-                        val startedWithRoot = intent.getBooleanExtra(EXTRA_IS_ROOT, true)
-                        val startedWithDhizuku = intent.getBooleanExtra(EXTRA_IS_DHIZUKU, false)
+                        val isServiceStarted = output.contains("Service started")
                         ExpressiveCard(
                             icon = when {
                                 startedWithDhizuku -> R.drawable.ic_system_icon
@@ -157,11 +167,27 @@ class StarterActivity : AppActivity() {
                             },
                             body = if (failed) {
                                 stringResource(R.string.notification_service_start_failed)
+                            } else if (isServiceStarted) {
+                                stringResource(R.string.home_status_service_is_running, stringResource(R.string.app_name))
                             } else {
-                                stringResource(R.string.notification_service_starting)
+                                ""
                             },
                             danger = failed
-                        )
+                        ) {
+                            if (!failed && !isServiceStarted) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    LoadingIndicator(modifier = Modifier.size(18.dp))
+                                    Text(
+                                        text = stringResource(R.string.notification_service_starting),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
                     item {
                         MonospaceLog(
@@ -169,8 +195,33 @@ class StarterActivity : AppActivity() {
                         )
                     }
                 }
+
+                errorDialogRes?.let { messageRes ->
+                    AlertDialog(
+                        onDismissRequest = { errorDialogRes = null },
+                        text = {
+                            Text(
+                                text = stringResource(messageRes),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        confirmButton = {
+                            Button(onClick = { errorDialogRes = null }) {
+                                Text(stringResource(android.R.string.ok))
+                            }
+                        },
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = MaterialTheme.shapes.extraLarge
+                    )
+                }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        moe.shizuku.manager.service.WatchdogManager.isStarterActive = false
     }
 
     companion object {
@@ -193,6 +244,7 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
     val output = _output as LiveData<Resource<String>>
 
     init {
+        prewarmManagerProvider()
         try {
             when {
                 dhizuku -> startDhizuku(context)
@@ -204,16 +256,16 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
         }
     }
 
+    private fun prewarmManagerProvider() {
+        runCatching {
+            val uri = Uri.parse("content://${appContext.packageName}.shizuku")
+            appContext.contentResolver.getType(uri)
+        }
+    }
+
     fun appendOutput(line: String) {
         synchronized(outputLock) {
             sb.appendLine(line)
-        }
-        postResult()
-    }
-
-    private fun appendRaw(value: String?) {
-        synchronized(outputLock) {
-            sb.append(value.orEmpty()).append('\n')
         }
         postResult()
     }
@@ -257,7 +309,7 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
             Shell.cmd(Starter.internalCommand).to(object : CallbackList<String?>() {
                 override fun onAddElement(s: String?) {
-                    appendRaw(s)
+                    appendLine(s.orEmpty())
                 }
             }).submit {
                 if (it.code != 0) {
@@ -295,15 +347,6 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
                 postResult(it)
             }
         }
-    }
-
-    private suspend fun waitForShizukuBinder(timeoutMs: Long = 10_000L): Boolean {
-        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
-        while (android.os.SystemClock.elapsedRealtime() < deadline) {
-            if (Shizuku.pingBinder()) return true
-            kotlinx.coroutines.delay(500)
-        }
-        return Shizuku.pingBinder()
     }
 
     private fun startDhizuku(context: Context) {
@@ -425,11 +468,12 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
                     appendLine("✓ Starter command executed successfully.")
                     appendLine("Waiting for Shevery service to initialize...")
-                    if (waitForShizukuBinder()) {
+                    if (ShizukuStateMachine.awaitRunning(10_000L)) {
                         appendLine("✓ Shevery binder verified.")
                         postResult()
                     } else {
-                        appendLine("✗ Starter command completed, but Shevery service did not become available.")
+                        appendLine("✗ Starter command completed,but Shevery service did not become available.")
+                        appendLine("  Per README: start Shevery first by PC/OTG or Wireless Debugging, then use Dhizuku — \"Do not start Shevery via Dhizuku first.\"")
                         appendLine("  Direct Dhizuku startup can fail when the Device Owner context cannot provide the same shell/root environment as ADB or root.")
                         appendLine("  Try starting with Wireless ADB or root, then copy diagnostics if this repeats.")
                         postResult(DhizukuException("Dhizuku starter did not publish a Shevery binder"))

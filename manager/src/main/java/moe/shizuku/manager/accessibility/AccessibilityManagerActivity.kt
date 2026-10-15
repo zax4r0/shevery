@@ -13,15 +13,20 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.ui.draw.clip
+
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +35,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import moe.shizuku.manager.R
 import moe.shizuku.manager.app.AppActivity
 import moe.shizuku.manager.ktx.loge
@@ -87,6 +93,9 @@ class AccessibilityManagerActivity : AppActivity() {
             val keepAliveEnabled = remember(tick) { AccessibilityKeepAliveStore.isKeepAliveEnabled() }
             val autoBoot = remember(tick) { AccessibilityKeepAliveStore.isAutoBootEnabled() }
             val shizukuRunning = remember(tick) { Shizuku.pingBinder() }
+
+            var showWriteFailedDialog by rememberSaveable { mutableStateOf(false) }
+            var detailsDialogData by remember { mutableStateOf<Pair<String, CharSequence?>?>(null) }
 
             ShizukuExpressiveTheme {
                 ShizukuLazyScaffold(
@@ -172,39 +181,85 @@ class AccessibilityManagerActivity : AppActivity() {
                                                 AccessibilityManager.disableService(context, service.id)
                                             }
                                             if (!ok) {
-                                                MaterialAlertDialogBuilder(this@AccessibilityManagerActivity)
-                                                    .setMessage(R.string.accessibility_manager_write_failed)
-                                                    .setPositiveButton(android.R.string.ok, null)
-                                                    .show()
+                                                showWriteFailedDialog = true
                                             }
                                             tick++
-                                        },
-                                        onPin = {
-                                            if (AccessibilityKeepAliveStore.isPinned(service.id)) {
-                                                AccessibilityKeepAliveStore.removePinned(service.id)
-                                            } else {
-                                                AccessibilityKeepAliveStore.addPinned(service.id)
-                                            }
-                                            tick++
-                                        },
-                                        onDetails = {
-                                            MaterialAlertDialogBuilder(this@AccessibilityManagerActivity)
-                                                .setTitle(service.label)
-                                                .setMessage(service.description)
-                                                .setPositiveButton(android.R.string.ok, null)
-                                                .show()
-                                        }
-                                    )
-                                    if (index < services.lastIndex) {
-                                        HorizontalDivider()
-                                    }
-                                }
-                            }
-                        }
-                    }
+                                         },
+                                         onPin = {
+                                             if (AccessibilityKeepAliveStore.isPinned(service.id)) {
+                                                 AccessibilityKeepAliveStore.removePinned(service.id)
+                                             } else {
+                                                 AccessibilityKeepAliveStore.addPinned(service.id)
+                                             }
+                                             tick++
+                                         },
+                                         onDetails = {
+                                             detailsDialogData = Pair(service.label, service.description)
+                                         }
+                                     )
+                                     if (index < services.lastIndex) {
+                                         GroupDivider()
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                 }
+
+                 if (showWriteFailedDialog) {
+                    OkAlertDialog(
+                        text = stringResource(R.string.accessibility_manager_write_failed),
+                        onDismiss = { showWriteFailedDialog = false }
+                    )
+                }
+
+                detailsDialogData?.let { (title, description) ->
+                    OkAlertDialog(
+                        title = title,
+                        text = description.toString(),
+                        onDismiss = { detailsDialogData = null }
+                    )
                 }
             }
         }
+    }
+
+    @Composable
+    private fun OkAlertDialog(
+        title: String? = null,
+        text: String? = null,
+        onDismiss: () -> Unit
+    ) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = title?.let { { DialogTitle(it) } },
+            text = text?.takeIf { it.isNotBlank() }?.let { body -> { DialogBody(body) } },
+            confirmButton = {
+                Button(onClick = onDismiss) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = MaterialTheme.shapes.extraLarge
+        )
+    }
+
+    @Composable
+    private fun DialogTitle(value: String) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+    }
+
+    @Composable
+    private fun DialogBody(value: String) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 
     override fun onDestroy() {
@@ -268,16 +323,26 @@ private fun ServiceRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = true, onClick = onDetails)
+            .clickable(onClick = onDetails)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Image(
-            bitmap = service.icon,
-            contentDescription = null,
-            modifier = Modifier.size(36.dp)
-        )
+        Surface(
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Image(
+                    bitmap = service.icon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                )
+            }
+        }
         Column(
             modifier = Modifier.weight(1f)
         ) {

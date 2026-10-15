@@ -7,9 +7,8 @@
 
 package moe.shizuku.manager.module
 
-import android.content.Intent
+
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,7 +25,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,15 +33,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,22 +51,20 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -88,6 +83,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import moe.shizuku.manager.R
+import moe.shizuku.manager.module.catalog.TokenStore
+import moe.shizuku.manager.module.discovery.ModuleDiscoveryManager
+import moe.shizuku.manager.module.update.ModuleInstaller
 import moe.shizuku.manager.module.update.UpdateChecker
 import moe.shizuku.manager.ui.compose.ExpressiveSwitch
 import moe.shizuku.manager.ui.compose.MonospaceLog
@@ -125,13 +123,16 @@ private val MODULE_MIME_TYPES = arrayOf(
 )
 
 @Composable
-fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
+fun ModulesScreen(
+    onOpenWebUi: (String) -> Unit,
+    listState: LazyListState = rememberLazyListState(),
+    modulesState: MutableState<List<AdbModule>>
+) {
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
-    var selectedTab by remember { mutableStateOf(0) } // 0: Installed, 1: Catalog
     var showCatalog by remember { mutableStateOf(false) }
-    var modules by remember { mutableStateOf<List<AdbModule>>(emptyList(), neverEqualPolicy()) }
+    var modules by modulesState
     var checkingUpdates by remember { mutableStateOf(false) }
     var updatingModuleId by remember { mutableStateOf<String?>(null) }
     var output by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -153,16 +154,22 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
             checkingUpdates = true
             Toast.makeText(context, context.getString(R.string.modules_checking_updates), Toast.LENGTH_SHORT).show()
             val checker = UpdateChecker.getInstance()
+            val discoveryManager = ModuleDiscoveryManager.getInstance(context)
+            val catalogModules = runCatching { discoveryManager.getModules(forceRefresh = false) }.getOrDefault(emptyList())
+            val githubPat = TokenStore.getToken(context)
             var foundUpdates = 0
             val updated = modules.map { m ->
-                val result = checker.checkUpdate(m)
-                val info = if (result.hasUpdate && result.downloadUrl != null && result.latestVersion != null) {
+                val result = checker.checkUpdate(m, catalogModules, githubPat)
+                val info = if (result.hasUpdate && result.latestVersion != null) {
                     foundUpdates++
                     ModuleUpdateInfo(
                         newVersion = result.latestVersion,
                         newVersionCode = result.latestVersionCode,
-                        zipUrl = result.downloadUrl,
-                        changelog = result.changelog
+                        zipUrl = result.downloadUrl ?: "",
+                        changelog = result.changelog,
+                        repoOwner = result.repoOwner,
+                        repoName = result.repoName,
+                        subPath = result.subPath
                     )
                 } else null
                 m.copy(updateInfo = info)
@@ -183,9 +190,23 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
         scope.launch {
             updatingModuleId = module.id
             Toast.makeText(context, context.getString(R.string.modules_updating), Toast.LENGTH_SHORT).show()
-            runCatching {
-                downloadAndInstallFromUrl(context, info.zipUrl, "${module.id}-update-${info.newVersion}.zip")
-            }.onSuccess {
+            val result = if (!info.repoOwner.isNullOrBlank() && !info.repoName.isNullOrBlank()) {
+                ModuleInstaller.getInstance().installModule(
+                    context,
+                    module.id,
+                    info.repoOwner,
+                    info.repoName,
+                    info.subPath
+                )
+            } else if (info.zipUrl.startsWith("http://") || info.zipUrl.startsWith("https://")) {
+                runCatching {
+                    downloadAndInstallFromUrl(context, info.zipUrl, "${module.id}-update-${info.newVersion}.zip")
+                }
+            } else {
+                Result.failure(Exception("No valid update source"))
+            }
+
+            result.onSuccess {
                 Toast.makeText(
                     context,
                     context.getString(R.string.modules_update_success, info.newVersion),
@@ -259,15 +280,14 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
             title = stringResource(R.string.modules_title),
             onNavigateUp = null,
             bottomInset = 112.dp,
+            listState = listState,
             isRefreshing = checkingUpdates,
-            onRefresh = if (selectedTab == 0) ({
+            onRefresh = {
                 view.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
                 checkAllUpdates()
-            }) else null,
+            },
             actions = {
                 ModuleTabsSwitcher(
-                    selectedTab = selectedTab,
-                    onInstalled = { selectedTab = 0 },
                     onCatalog = { showCatalog = true }
                 )
                 Spacer(modifier = Modifier.size(8.dp))
@@ -288,65 +308,63 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                 }
         }
     ) {
-        if (selectedTab == 0) {
-            item {
-                AnimatedContent(targetState = modules.isEmpty(), label = "module-empty-state") { empty ->
-                    if (empty) {
-                        EmptyModulesCard(onInstall = { zipLauncher.launch(MODULE_MIME_TYPES) })
-                    }
-                }
-            }
-            items(modules, key = { it.id }) { module ->
-                ModuleCard(
-                    module = module,
-                    busy = runningModuleId == module.id,
-                    updating = updatingModuleId == module.id,
-                    trusted = ModuleSettings.isModuleTrusted(module.id),
-                    modifier = Modifier.animateItem(),
-                    onToggle = {
-                        scope.launch {
-                            AdbModuleManager.setEnabled(module, !module.enabled)
-                            reload()
-                        }
-                    },
-                    onRunAction = {
-                        if (ModuleSettings.recommandForAction()) {
-                            pendingCommand = ModuleCommandRequest(
-                                module = module,
-                                source = ModuleCommandSource.ACTION,
-                                command = module.actionCommandPreview()
-                            )
-                        } else {
-                            runModuleAction(module)
-                        }
-                    },
-                    onRunService = {
-                        scope.launch {
-                            runningModuleId = module.id
-                            output = runCatching {
-                                val result = AdbModuleManager.runService(module)
-                                context.getString(R.string.modules_service_result, result.exitCode) to result.combinedOutput
-                            }.getOrElse {
-                                context.getString(R.string.modules_service_failed) to (it.message ?: it.javaClass.simpleName)
-                            }
-                            runningModuleId = null
-                        }
-                    },
-                    onOpenWebUi = {
-                        onOpenWebUi(module.id)
-                    },
-                    onDelete = { deleteTarget = module },
-                    onTrustChange = { trusted ->
-                        scope.launch {
-                            ModuleSettings.setModuleTrusted(module.id, trusted)
-                            AdbModuleManager.setEnabled(module, trusted)
-                            reload()
-                        }
-                    },
-                    onUpdateModule = { updateModule(module) }
-                )
-            }
+item {
+    AnimatedContent(targetState = modules.isEmpty(), label = "module-empty-state") { empty ->
+        if (empty) {
+            EmptyModulesCard(onInstall = { zipLauncher.launch(MODULE_MIME_TYPES) })
         }
+    }
+}
+items(modules, key = { it.id }) { module ->
+    ModuleCard(
+        module = module,
+        busy = runningModuleId == module.id,
+        updating = updatingModuleId == module.id,
+        trusted = ModuleSettings.isModuleTrusted(module.id),
+        modifier = Modifier.animateItem(),
+        onToggle = {
+            scope.launch {
+                AdbModuleManager.setEnabled(module, !module.enabled)
+                reload()
+            }
+        },
+        onRunAction = {
+            if (ModuleSettings.recommandForAction()) {
+                pendingCommand = ModuleCommandRequest(
+                    module = module,
+                    source = ModuleCommandSource.ACTION,
+                    command = module.actionCommandPreview()
+                )
+            } else {
+                runModuleAction(module)
+            }
+        },
+        onRunService = {
+            scope.launch {
+                runningModuleId = module.id
+                output = runCatching {
+                    val result = AdbModuleManager.runService(module)
+                    context.getString(R.string.modules_service_result, result.exitCode) to result.combinedOutput
+                }.getOrElse {
+                    context.getString(R.string.modules_service_failed) to (it.message ?: it.javaClass.simpleName)
+                }
+                runningModuleId = null
+            }
+        },
+        onOpenWebUi = {
+            onOpenWebUi(module.id)
+        },
+        onDelete = { deleteTarget = module },
+        onTrustChange = { trusted ->
+            scope.launch {
+                ModuleSettings.setModuleTrusted(module.id, trusted)
+                AdbModuleManager.setEnabled(module, trusted)
+                reload()
+            }
+        },
+        onUpdateModule = { updateModule(module) }
+    )
+}
     }
 }
 
@@ -367,7 +385,7 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                     MonospaceLog(text)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Gemini AI Explanation",
+                        text = stringResource(R.string.comput_ai_explanation),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -379,7 +397,7 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            CircularProgressIndicator()
+                            LoadingIndicator(modifier = Modifier.size(32.dp))
                         }
                     } else if (aiExplanation != null) {
                         Text(
@@ -391,27 +409,30 @@ fun ModulesScreen(onOpenWebUi: (String) -> Unit) {
                         val hasApiKey = apiKey.isNotBlank()
                         Button(
                             onClick = {
-                                aiLoading = true
-                                scope.launch {
-                                    val moduleInfo = lastRunModule?.let { "Module: ${it.name} (${it.id})" } ?: "Unknown Module"
-                                    val scriptName = lastRunModule?.actionScript?.name ?: "action.sh"
-                                    aiExplanation = AiExplainUtil.explainFailure(
-                                        contextStr = "Shevery Android app, running module action script",
-                                        inputDetail = "$moduleInfo, script = $scriptName",
-                                        outputLog = text,
-                                        apiKey = apiKey
-                                    )
-                                    aiLoading = false
+                                if (!hasApiKey) {
+            Toast.makeText(context, context.getString(R.string.comput_ai_no_active_toast), Toast.LENGTH_SHORT).show()
+                                } else {
+                                    aiLoading = true
+                                    scope.launch {
+                                        val moduleInfo = lastRunModule?.let { "Module: ${it.name} (${it.id})" } ?: "Unknown Module"
+                                        val scriptName = lastRunModule?.actionScript?.name ?: "action.sh"
+                                        aiExplanation = AiExplainUtil.explainFailure(
+                                            contextStr = "Shevery Android app, running module action script",
+                                            inputDetail = "$moduleInfo, script = $scriptName",
+                                            outputLog = text,
+                                            apiKey = apiKey
+                                        )
+                                        aiLoading = false
+                                    }
                                 }
                             },
-                            enabled = hasApiKey,
                             modifier = Modifier.align(Alignment.End)
                         ) {
-                            Text("Ask Gemini")
+                            Text(stringResource(R.string.comput_ask_gemini))
                         }
                         if (!hasApiKey) {
                             Text(
-                                text = "Please configure your Google AI Studio API Key in Shevery Settings to use Gemini AI Explanation.",
+            text = stringResource(R.string.comput_ai_no_active_toast),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -601,7 +622,7 @@ private fun ModuleCard(
                                 modifier = Modifier.height(32.dp)
                             ) {
                                 if (updating) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                    LoadingIndicator(modifier = Modifier.size(16.dp))
                                 } else {
                                     Text(stringResource(R.string.modules_update_button))
                                 }
@@ -837,8 +858,6 @@ private fun ModuleButton(
 
 @Composable
 private fun ModuleTabsSwitcher(
-    selectedTab: Int,
-    onInstalled: () -> Unit,
     onCatalog: () -> Unit
 ) {
     Surface(
@@ -849,10 +868,11 @@ private fun ModuleTabsSwitcher(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ModuleTabSegment(
-                selected = selectedTab == 0,
+                selected = true,
                 icon = Icons.Rounded.CheckCircle,
                 contentDescription = stringResource(R.string.modules_tab_installed),
-                onClick = onInstalled
+                onClick = {},
+                enabled = false
             )
             ModuleTabSegment(
                 selected = false,
@@ -869,7 +889,8 @@ private fun ModuleTabSegment(
     selected: Boolean,
     icon: ImageVector,
     contentDescription: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
     Surface(
         shape = RoundedCornerShape(50),
@@ -880,7 +901,8 @@ private fun ModuleTabSegment(
             MaterialTheme.colorScheme.onSurfaceVariant
         },
         modifier = Modifier.height(36.dp),
-        onClick = onClick
+        onClick = onClick,
+        enabled = enabled
     ) {
         Box(
             contentAlignment = Alignment.Center,

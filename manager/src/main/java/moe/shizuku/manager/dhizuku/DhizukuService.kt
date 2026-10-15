@@ -6,8 +6,7 @@ import android.os.Build
 import android.os.SystemProperties
 import android.provider.Settings
 import android.util.Log
-import java.net.InetSocketAddress
-import java.net.Socket
+import moe.shizuku.manager.utils.EnvironmentUtils
 
 class DhizukuService(private val context: Context) : IDhizukuService.Stub() {
 
@@ -63,17 +62,17 @@ class DhizukuService(private val context: Context) : IDhizukuService.Stub() {
                 return false
             }
 
-            // Find the device owner admin component
+            // Find the owner admin component (Device Owner or Profile Owner)
             val ownerAdmin = admins.firstOrNull { admin ->
                 try {
-                    dpm.isDeviceOwnerApp(admin.packageName)
+                    dpm.isDeviceOwnerApp(admin.packageName) || dpm.isProfileOwnerApp(admin.packageName)
                 } catch (e: Exception) {
                     false
                 }
             }
 
             if (ownerAdmin == null) {
-                Log.e(TAG, "No device owner admin found among active admins: ${admins.map { it.flattenToString() }}")
+                Log.e(TAG, "No device/profile owner admin found among active admins: ${admins.map { it.flattenToString() }}")
                 return false
             }
 
@@ -151,7 +150,7 @@ class DhizukuService(private val context: Context) : IDhizukuService.Stub() {
 
     private fun waitForAdbTcpPort(port: Int): Boolean {
         repeat(10) {
-            if (isAdbPortLive(port)) return true
+            if (EnvironmentUtils.isAdbPortLive(port)) return true
             try {
                 Thread.sleep(500)
             } catch (_: InterruptedException) {
@@ -160,16 +159,5 @@ class DhizukuService(private val context: Context) : IDhizukuService.Stub() {
             }
         }
         return false
-    }
-
-    private fun isAdbPortLive(port: Int): Boolean {
-        return try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress("127.0.0.1", port), 250)
-            }
-            true
-        } catch (_: Exception) {
-            false
-        }
     }
 }
